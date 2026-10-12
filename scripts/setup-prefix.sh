@@ -4,9 +4,9 @@
 #   --windows-fonts DIR   copy fonts from your own Windows installation (its C:\Windows\Fonts
 #                         folder, e.g. a mounted Windows partition). Strongly recommended:
 #                         Adobe's UI asks for Segoe UI, and Photoshop's menu bar crashes without it.
-#   --dpi N               UI scaling for the Adobe apps in DPI (96 = 100%, 144 = 150%, 192 = 200%).
-#                         Default: your desktop's scale (Xft.dpi), so apps match the rest of the
-#                         desktop on HiDPI screens; 96 when it cannot be read.
+#   --dpi N|auto          UI scaling for the Adobe apps in DPI (96 = 100%, 144 = 150%, 192 = 200%),
+#                         kept in ~/.config/adobewine/config. Default (auto): your desktop's scale
+#                         (Xft.dpi), read again at each launch; 96 when it cannot be read.
 set -euo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd)/bin/env.sh"
 WINFONTS=""
@@ -14,7 +14,8 @@ DPI=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --windows-fonts) WINFONTS="$2"; shift 2 ;;
-    --dpi) DPI="$2"; shift 2 ;;
+    --dpi) DPI="$2"; shift 2
+           case "$DPI" in auto) ;; ''|*[!0-9]*) echo "--dpi takes a number or auto" >&2; exit 1 ;; esac ;;
     *) echo "unknown option $1" >&2; exit 1 ;;
   esac
 done
@@ -106,13 +107,12 @@ wine reg add 'HKCU\Software\Wine\AppDefaults\msedgewebview2.exe\DllOverrides' /v
 wine reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d x11 /f >/dev/null
 wine reg add 'HKCU\Software\Wine\X11 Driver' /v Decorated /d N /f >/dev/null
 wine reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f >/dev/null
-# HiDPI: Wine draws at 96 DPI unless told otherwise, so on a 2x or 1.5x desktop Adobe's UI is tiny.
-[ -n "$DPI" ] || DPI=$(xrdb -query 2>/dev/null | awk '/^Xft\.dpi:/ {printf "%d", $2}')
-case "$DPI" in ''|*[!0-9]*) DPI=96 ;; esac
-[ "$DPI" -lt 96 ] && DPI=96; [ "$DPI" -gt 288 ] && DPI=288
-wine reg add 'HKCU\Control Panel\Desktop' /v LogPixels /t REG_DWORD /d "$DPI" /f >/dev/null
-wine reg add 'HKLM\System\CurrentControlSet\Hardware Profiles\Current\Software\Fonts' /v LogPixels /t REG_DWORD /d "$DPI" /f >/dev/null
-echo "UI scaling: $DPI DPI ($(( DPI * 100 / 96 ))%). Change with: adobewine setup --dpi N"
+if [ -n "$DPI" ]; then
+  conf="${XDG_CONFIG_HOME:-$HOME/.config}/adobewine/config"
+  mkdir -p "${conf%/*}"; touch "$conf"
+  sed -i '/^DPI=/d' "$conf"
+  [ "$DPI" = auto ] || echo "DPI=$DPI" >> "$conf"
+fi
 
 # Fonts from your own Windows installation (Segoe UI and friends).
 if [ -n "$WINFONTS" ]; then

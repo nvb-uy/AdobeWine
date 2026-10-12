@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Give the Wine prefix the desktop's colours, dark or light mode and accent colour.
+"""Give the Wine prefix the desktop's colours, dark or light mode, accent colour and scale.
 
 Usage: desktop-settings.py [--force]
 
@@ -7,6 +7,7 @@ On KDE the colours come from the colour scheme (kdeglobals), elsewhere from a bu
 Adwaita dark or Windows light palette chosen by the desktop portal's colour scheme. The
 result goes into the registry with regedit; a copy is kept in the prefix and regedit only
 runs when something changed (or with --force). Programs started afterwards pick it up.
+The DPI is DPI= from ~/.config/adobewine/config, else Xft.dpi, else GNOME's text scaling.
 """
 import configparser
 import json
@@ -146,6 +147,44 @@ def sys_colours(p):
     }
 
 
+def run(*cmd):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def xft_dpi():
+    m = re.search(r"^Xft\.dpi:\s*([0-9.]+)", run("xrdb", "-query"), re.M)
+    if m:
+        return float(m.group(1))
+    try:
+        from Xlib import display, Xatom
+        d = display.Display()
+        prop = d.screen().root.get_full_property(d.intern_atom("RESOURCE_MANAGER"), Xatom.STRING)
+        m = re.search(rb"^Xft\.dpi:\s*([0-9.]+)", prop.value, re.M)
+        return float(m.group(1)) if m else None
+    except Exception:
+        return None
+
+
+def dpi():
+    value = None
+    try:
+        m = re.search(r"^\s*DPI=[\"']?([0-9]+)", open(os.path.join(CONFIG, "adobewine/config")).read(), re.M)
+        value = m and int(m.group(1))
+    except OSError:
+        pass
+    if not value:
+        value = xft_dpi()
+    if not value:
+        try:
+            value = float(run("gsettings", "get", "org.gnome.desktop.interface", "text-scaling-factor")) * 96
+        except ValueError:
+            value = 96
+    return max(96, min(288, int(round(value))))
+
+
 def registry():
     scheme = portal_scheme()
     if ":KDE:" in ":%s:" % os.environ.get("XDG_CURRENT_DESKTOP", ""):
@@ -157,6 +196,7 @@ def registry():
     a = p["accent"]
     shades = [mix(a, WHITE, t) for t in (0.6, 0.4, 0.2)] + [a] + [mix(a, BLACK, t) for t in (0.2, 0.4, 0.6)]
     light = "dword:%08x" % (not dark)
+    logpixels = '"LogPixels"=dword:%08x' % dpi()
     reg = ["REGEDIT4", "",
            r"[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\ThemeManager]",
            '"ColorName"="%s"' % ("Dark" if dark else "Blue"), '"ThemeActive"="1"', '"LoadedBefore"="1"', "",
@@ -170,7 +210,10 @@ def registry():
             '"AccentPalette"=hex:' + ",".join("%02x,%02x,%02x,00" % c for c in shades), "",
             r"[HKEY_CURRENT_USER\Software\Microsoft\Windows\DWM]",
             '"AccentColor"=dword:ff%02x%02x%02x' % a[::-1],
-            '"ColorizationColor"=dword:ff%02x%02x%02x' % a]
+            '"ColorizationColor"=dword:ff%02x%02x%02x' % a, "",
+            r"[HKEY_CURRENT_USER\Control Panel\Desktop]", logpixels, "",
+            r"[HKEY_LOCAL_MACHINE\System\CurrentControlSet\Hardware Profiles\Current\Software\Fonts]",
+            logpixels]
     return "\n".join(reg) + "\n"
 
 
