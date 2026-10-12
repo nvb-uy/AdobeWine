@@ -1,0 +1,189 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] comdlg32: Make portal dialogs modal to their owner window.
+
+The request runs on a worker thread while the calling thread keeps dispatching messages, so the application keeps repainting and answering pings. The owner is disabled meanwhile and passed to the portal as the parent window.
+---
+diff --git a/dlls/comdlg32/filedlg.c b/dlls/comdlg32/filedlg.c
+--- a/dlls/comdlg32/filedlg.c
++++ b/dlls/comdlg32/filedlg.c
+@@ -4481,7 +4481,7 @@ BOOL WINAPI GetOpenFileNameW(OPENFILENAMEW *ofn)
+         params->max_results = max_results;
+ 
+         TRACE("Calling unix_portal_open_file...\n");
+-        status = portal_call(unix_portal_open_file, params);
++        status = portal_call(unix_portal_open_file, params, ofn->hwndOwner);
+         TRACE("Portal returned status: 0x%08lx\n", (long)status);
+ 
+         if (status == STATUS_BUFFER_TOO_SMALL)
+@@ -4723,7 +4723,7 @@ BOOL WINAPI GetSaveFileNameW(
+         params->flags = ofn->Flags;
+ 
+         TRACE("Calling unix_portal_save_file...\n");
+-        status = portal_call(unix_portal_save_file, params);
++        status = portal_call(unix_portal_save_file, params, ofn->hwndOwner);
+         TRACE("Portal returned status: 0x%08lx\n", (unsigned long)status);
+ 
+         if (status == STATUS_BUFFER_TOO_SMALL)
+diff --git a/dlls/comdlg32/itemdlg.c b/dlls/comdlg32/itemdlg.c
+--- a/dlls/comdlg32/itemdlg.c
++++ b/dlls/comdlg32/itemdlg.c
+@@ -2973,7 +2973,7 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ 		open_params->result_buffer_len = 0;
+ 
+         /* Call Unix library */
+-        status = portal_call(unix_portal_open_file, open_params);
++        status = portal_call(unix_portal_open_file, open_params, hwndOwner);
+ 
+         /* Handle result */
+         TRACE("portal open result: status=0x%08lx count=%u first_char=%04x grouped=%u\n",
+@@ -3141,7 +3141,7 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ 		portal_build_choices(This, &save_params->choices, choice_map);
+ 
+         /* Call Unix library */
+-        status = portal_call(unix_portal_save_file, save_params);
++        status = portal_call(unix_portal_save_file, save_params, hwndOwner);
+         TRACE("portal save: status=%08lx len=%u first=%04x path=%s\n",
+               status, save_params->result_buffer_len,
+               save_params->result_buffer[0], debugstr_w(save_params->result_buffer));
+diff --git a/dlls/comdlg32/portal.c b/dlls/comdlg32/portal.c
+--- a/dlls/comdlg32/portal.c
++++ b/dlls/comdlg32/portal.c
+@@ -19,6 +19,7 @@
+  */
+ 
+ #include <stdarg.h>
++#include <stdio.h>
+ #include <stdlib.h>
+ 
+ #define WIN32_NO_STATUS
+@@ -56,12 +57,62 @@ enum portal_policy portal_get_policy(void)
+     return PORTAL_POLICY_NEVER;
+ }
+ 
+-NTSTATUS portal_call(enum comdlg32_unix_funcs code, struct portal_file_params *params)
++struct portal_thread_params
+ {
+-    NTSTATUS status;
++    enum comdlg32_unix_funcs code;
++    struct portal_file_params *params;
++};
++
++static DWORD WINAPI portal_thread(void *arg)
++{
++    struct portal_thread_params *call = arg;
++
++    return WINE_UNIX_CALL(call->code, call->params);
++}
++
++NTSTATUS portal_call(enum comdlg32_unix_funcs code, struct portal_file_params *params, HWND owner)
++{
++    struct portal_thread_params call = {code, params};
++    BOOL reenable = FALSE, quit = FALSE;
++    WPARAM quit_code = 0;
++    HANDLE thread, window;
++    DWORD status;
++    MSG msg;
+ 
+     if (!COMDLG32_init_unix_call()) return STATUS_NOT_SUPPORTED;
+-    status = WINE_UNIX_CALL(code, params);
++
++    if (!owner) owner = GetActiveWindow();
++    if (owner) owner = GetAncestor(owner, GA_ROOT);
++    if (owner && !IsWindowVisible(owner)) owner = NULL;
++    if (owner && (window = GetPropW(owner, L"__wine_x11_whole_window")))
++        snprintf(params->parent_window, sizeof(params->parent_window), "x11:%Ix", (ULONG_PTR)window);
++    if (owner) reenable = !EnableWindow(owner, FALSE);
++    TRACE("owner %p, parent %s\n", owner, debugstr_a(params->parent_window));
++
++    if (!(thread = CreateThread(NULL, 0, portal_thread, &call, 0, NULL)))
++        status = STATUS_NO_MEMORY;
++    else
++    {
++        while (MsgWaitForMultipleObjectsEx(1, &thread, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE) != WAIT_OBJECT_0)
++        {
++            while (PeekMessageW(&msg, 0, 0, 0, PM_REMOVE))
++            {
++                if (msg.message == WM_QUIT)
++                {
++                    quit = TRUE;
++                    quit_code = msg.wParam;
++                    continue;
++                }
++                TranslateMessage(&msg);
++                DispatchMessageW(&msg);
++            }
++        }
++        GetExitCodeThread(thread, &status);
++        CloseHandle(thread);
++    }
++
++    if (reenable) EnableWindow(owner, TRUE);
++    if (quit) PostQuitMessage(quit_code);
+     TRACE("call %u returned %#lx\n", code, status);
+     return status;
+ }
+diff --git a/dlls/comdlg32/portal_dbus.c b/dlls/comdlg32/portal_dbus.c
+--- a/dlls/comdlg32/portal_dbus.c
++++ b/dlls/comdlg32/portal_dbus.c
+@@ -755,6 +755,7 @@ static void portal_cleanup(struct portal_context *ctx)
+ /* Call portal method and wait for response */
+ static NTSTATUS portal_call_and_wait(struct portal_context *ctx,
+                                       const char *method,
++                                      const char *parent_window,
+                                       const char *title_utf8,
+                                       const char *initial_dir_utf8,
+                                       const char *initial_filename_utf8,
+@@ -769,7 +770,6 @@ static NTSTATUS portal_call_and_wait(struct portal_context *ctx,
+     DBusMessage *request, *reply;
+     DBusMessageIter args, options_dict;
+     DBusError error;
+-    const char *parent_window = "";
+     const char *request_handle;
+     char match_rule[512];
+     char token[64];
+@@ -1085,7 +1085,7 @@ NTSTATUS CDECL portal_open_file(void *args)
+     if (status != STATUS_SUCCESS)
+         return status;
+ 
+-    status = portal_call_and_wait(&ctx, "OpenFile",
++    status = portal_call_and_wait(&ctx, "OpenFile", params->parent_window,
+                                   params->title_utf8[0] ? params->title_utf8 : NULL,
+                                   params->initial_dir_utf8[0] ? params->initial_dir_utf8 : NULL,
+                                   NULL,
+@@ -1257,7 +1257,7 @@ NTSTATUS CDECL portal_save_file(void *args)
+     if (status != STATUS_SUCCESS)
+         return status;
+ 
+-    status = portal_call_and_wait(&ctx, "SaveFile",
++    status = portal_call_and_wait(&ctx, "SaveFile", params->parent_window,
+                                   params->title_utf8[0] ? params->title_utf8 : NULL,
+                                   params->initial_dir_utf8[0] ? params->initial_dir_utf8 : NULL,
+                                   params->initial_filename_utf8[0] ? params->initial_filename_utf8 : NULL,
+diff --git a/dlls/comdlg32/unixlib.h b/dlls/comdlg32/unixlib.h
+--- a/dlls/comdlg32/unixlib.h
++++ b/dlls/comdlg32/unixlib.h
+@@ -10,6 +10,7 @@
+ #define PORTAL_FILTERS_MAX 8192
+ /* Packed OPENFILENAMEW multi-select results can be large. */
+ #define PORTAL_RESULT_MAX  65536
++#define PORTAL_PARENT_MAX  64
+ 
+ /* Internal portal request flags carried in portal_file_params.flags. */
+ #define PORTAL_OPEN_FLAG_MULTIPLE   0x00000001
+@@ -46,6 +47,7 @@ struct portal_choices
+ 
+ struct portal_file_params
+ {
++    char parent_window[PORTAL_PARENT_MAX];
+     char title_utf8[PORTAL_STR_MAX];
+     char initial_dir_utf8[PORTAL_PATH_MAX];
+     char initial_filename_utf8[PORTAL_PATH_MAX];
+@@ -86,7 +88,7 @@ enum portal_policy
+ 
+ extern enum portal_policy portal_get_policy(void);
+ extern BOOL portal_available(void);
+-extern NTSTATUS portal_call(enum comdlg32_unix_funcs code, struct portal_file_params *params);
++extern NTSTATUS portal_call(enum comdlg32_unix_funcs code, struct portal_file_params *params, HWND owner);
+ extern void portal_utf8(char *dst, size_t size, const WCHAR *str);
+ extern void portal_unix_path(char *dst, size_t size, const WCHAR *path);
+ extern BOOL portal_add_filter(struct portal_file_params *params, const WCHAR *name, const WCHAR *spec);
