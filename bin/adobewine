@@ -40,10 +40,13 @@ case "$cmd" in
       apps='^(Photoshop|Illustrator|Adobe Audition|Adobe Premiere Pro|Adobe Media Encoder)\.exe'
       for _ in $(seq 60); do wine tasklist 2>/dev/null | grep -qiE "$apps" || break; sleep 1; done
       if wine tasklist 2>/dev/null | grep -qiE "$apps"; then
-        echo "An Adobe app is still open (maybe asking to save). Close it, or run: adobewine off --force"; exit 1
+        if [ -t 1 ]; then echo "An Adobe app is still open (maybe asking to save). Close it, or run: adobewine off --force"
+        elif command -v notify-send >/dev/null; then notify-send -i dialog-information "Adobe apps are still open" "Close them and try again."
+        fi
+        exit 1
       fi
     fi
-    wineserver -k; echo "All AdobeWine processes stopped."; exit 0 ;;
+    wineserver -k; [ -t 1 ] && echo "All Adobe apps stopped."; exit 0 ;;
   fix-signin)
     # Adobe's licensing window comes in two flavours; the Chromium one does not draw under
     # Wine, the Internet Explorer engine one does. Renaming the Chromium helper makes Adobe's
@@ -125,7 +128,7 @@ core_fonts() {
 }
 core_fonts
 log="$ADOBEWINE_HOME/logs/$cmd-$(date +%Y%m%d-%H%M%S).log"
-echo "log: $log"
+[ -t 1 ] && echo "log: $log"
 stamp="$({ tr -d '\r\n' < "$WINEPREFIX/.update-timestamp"; } 2>/dev/null)"
 inf="$(stat -c %Y "$ADOBEWINE_RUNTIME/share/wine/wine.inf" 2>/dev/null)"
 if [ -n "$inf" ] && [ "${stamp#disable}" = "$stamp" ] && [ "$stamp" != "$inf" ] && command -v notify-send >/dev/null; then
