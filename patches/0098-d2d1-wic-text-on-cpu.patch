@@ -1,0 +1,584 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] d2d1: Draw clears and grayscale glyph runs of WIC bitmap targets on the CPU.
+
+WIC bitmap targets now keep a copy of their pixels in memory. Clears and aliased 1x1 glyph runs with a solid brush are drawn into that copy, using the same fixed-point conversion and blend the GPU produces, and EndDraw hands it to the WIC bitmap without a readback. Anything that reads or draws the texture uploads the copy first, after which the target stays on the GPU until the next readback. Photoshop's Home screen draws every text element into its own small WIC target and waited for a GPU readback on each EndDraw.
+---
+diff --git a/dlls/d2d1/bitmap.c b/dlls/d2d1/bitmap.c
+--- a/dlls/d2d1/bitmap.c
++++ b/dlls/d2d1/bitmap.c
+@@ -101,6 +101,7 @@ static ULONG STDMETHODCALLTYPE d2d_bitmap_Release(ID2D1Bitmap1 *iface)
+             ID3D11Texture2D_Release(bitmap->msaa_load_texture);
+         ID3D11Resource_Release(bitmap->resource);
+         ID2D1Factory_Release(bitmap->factory);
++        free(bitmap->cpu_data);
+         free(bitmap);
+     }
+ 
+@@ -182,6 +183,66 @@ void d2d_bitmap_msaa_invalidate(struct d2d_bitmap *bitmap)
+         bitmap->msaa_state = D2D_MSAA_INVALID;
+ }
+ 
++BYTE *d2d_bitmap_cpu_bits(struct d2d_bitmap *bitmap)
++{
++    if (!bitmap->cpu_enabled)
++        return NULL;
++    if (!bitmap->cpu_data && !(bitmap->cpu_data = malloc(bitmap->pixel_size.width * bitmap->pixel_size.height * 4)))
++        bitmap->cpu_enabled = FALSE;
++    return bitmap->cpu_data;
++}
++
++void d2d_bitmap_cpu_upload(struct d2d_bitmap *bitmap)
++{
++    ID3D11DeviceContext *context;
++    ID3D11Device *device;
++
++    if (bitmap->cpu_state != D2D_CPU_DIRTY)
++        return;
++
++    ID3D11Resource_GetDevice(bitmap->resource, &device);
++    ID3D11Device_GetImmediateContext(device, &context);
++    ID3D11DeviceContext_UpdateSubresource(context, bitmap->resource, 0, NULL, bitmap->cpu_data,
++            bitmap->pixel_size.width * 4, 0);
++    ID3D11DeviceContext_Release(context);
++    ID3D11Device_Release(device);
++    d2d_bitmap_msaa_invalidate(bitmap);
++    bitmap->cpu_state = D2D_CPU_SYNC;
++}
++
++void d2d_bitmap_cpu_disable(struct d2d_bitmap *bitmap)
++{
++    d2d_bitmap_cpu_upload(bitmap);
++    free(bitmap->cpu_data);
++    bitmap->cpu_data = NULL;
++    bitmap->cpu_enabled = FALSE;
++    bitmap->cpu_state = D2D_CPU_NONE;
++}
++
++BOOL d2d_bitmap_cpu_read(struct d2d_bitmap *bitmap, BYTE *dst, unsigned int pitch)
++{
++    unsigned int i, row = bitmap->pixel_size.width * 4;
++
++    if (bitmap->cpu_state == D2D_CPU_NONE)
++        return FALSE;
++
++    for (i = 0; i < bitmap->pixel_size.height; ++i)
++        memcpy(dst + i * pitch, bitmap->cpu_data + i * row, row);
++    return TRUE;
++}
++
++void d2d_bitmap_cpu_store(struct d2d_bitmap *bitmap, const BYTE *src, unsigned int pitch)
++{
++    unsigned int i, row = bitmap->pixel_size.width * 4;
++
++    if (!bitmap->cpu_data)
++        return;
++
++    for (i = 0; i < bitmap->pixel_size.height; ++i)
++        memcpy(bitmap->cpu_data + i * row, src + i * pitch, row);
++    bitmap->cpu_state = D2D_CPU_SYNC;
++}
++
+ static HRESULT STDMETHODCALLTYPE d2d_bitmap_CopyFromBitmap(ID2D1Bitmap1 *iface,
+         const D2D1_POINT_2U *dst_point, ID2D1Bitmap *bitmap, const D2D1_RECT_U *src_rect)
+ {
+@@ -206,6 +267,8 @@ static HRESULT STDMETHODCALLTYPE d2d_bitmap_CopyFromBitmap(ID2D1Bitmap1 *iface,
+ 
+     d2d_bitmap_msaa_resolve(src_bitmap);
+     d2d_bitmap_msaa_resolve(dst_bitmap);
++    d2d_bitmap_cpu_upload(src_bitmap);
++    d2d_bitmap_cpu_upload(dst_bitmap);
+     ID3D11Resource_GetDevice(dst_bitmap->resource, &device);
+     ID3D11Device_GetImmediateContext(device, &context);
+     ID3D11DeviceContext_CopySubresourceRegion(context, dst_bitmap->resource, 0,
+@@ -214,6 +277,7 @@ static HRESULT STDMETHODCALLTYPE d2d_bitmap_CopyFromBitmap(ID2D1Bitmap1 *iface,
+     ID3D11DeviceContext_Release(context);
+     ID3D11Device_Release(device);
+     d2d_bitmap_msaa_invalidate(dst_bitmap);
++    d2d_bitmap_cpu_invalidate(dst_bitmap);
+ 
+     return S_OK;
+ }
+@@ -275,12 +339,14 @@ static HRESULT STDMETHODCALLTYPE d2d_bitmap_CopyFromMemory(ID2D1Bitmap1 *iface,
+     }
+ 
+     d2d_bitmap_msaa_resolve(bitmap);
++    d2d_bitmap_cpu_upload(bitmap);
+     ID3D11Resource_GetDevice(bitmap->resource, &device);
+     ID3D11Device_GetImmediateContext(device, &context);
+     ID3D11DeviceContext_UpdateSubresource(context, bitmap->resource, 0, dst_rect ? &box : NULL, src_data, pitch, 0);
+     ID3D11DeviceContext_Release(context);
+     ID3D11Device_Release(device);
+     d2d_bitmap_msaa_invalidate(bitmap);
++    d2d_bitmap_cpu_invalidate(bitmap);
+ 
+     return S_OK;
+ }
+@@ -305,6 +371,7 @@ static HRESULT STDMETHODCALLTYPE d2d_bitmap_GetSurface(ID2D1Bitmap1 *iface, IDXG
+ 
+     TRACE("iface %p, surface %p.\n", iface, surface);
+ 
++    d2d_bitmap_cpu_disable(bitmap);
+     *surface = bitmap->surface;
+     if (*surface)
+         IDXGISurface_AddRef(*surface);
+@@ -344,6 +411,7 @@ static HRESULT STDMETHODCALLTYPE d2d_bitmap_Map(ID2D1Bitmap1 *iface, D2D1_MAP_OP
+         return E_INVALIDARG;
+     }
+ 
++    d2d_bitmap_cpu_disable(bitmap);
+     ID3D11Resource_GetDevice(bitmap->resource, &device);
+     ID3D11Device_GetImmediateContext(device, &context);
+     if (SUCCEEDED(hr = ID3D11DeviceContext_Map(context, bitmap->resource, 0, map_type,
+@@ -610,6 +678,7 @@ HRESULT d2d_bitmap_create_shared(struct d2d_device_context *context, REFIID iid,
+             hr = D2DERR_UNSUPPORTED_OPERATION;
+             goto failed;
+         }
++        d2d_bitmap_cpu_disable(src_impl);
+ 
+         if (desc)
+         {
+diff --git a/dlls/d2d1/brush.c b/dlls/d2d1/brush.c
+--- a/dlls/d2d1/brush.c
++++ b/dlls/d2d1/brush.c
+@@ -1514,6 +1514,7 @@ static void d2d_brush_bind_bitmap(struct d2d_bitmap *bitmap, struct d2d_device_c
+     HRESULT hr;
+ 
+     d2d_bitmap_msaa_resolve(bitmap);
++    d2d_bitmap_cpu_upload(bitmap);
+     ID3D11Device1_GetImmediateContext(context->d3d_device, &d3d_context);
+     ID3D11DeviceContext_PSSetShaderResources(d3d_context, brush_idx, 1, &bitmap->srv);
+ 
+diff --git a/dlls/d2d1/d2d1_private.h b/dlls/d2d1/d2d1_private.h
+--- a/dlls/d2d1/d2d1_private.h
++++ b/dlls/d2d1/d2d1_private.h
+@@ -258,6 +258,7 @@ struct d2d_wic_render_target
+     IUnknown *dxgi_inner;
+     ID3D10Texture2D *readback_texture;
+     IWICBitmap *bitmap;
++    ID2D1Bitmap *target_bitmap;
+ 
+     unsigned int width;
+     unsigned int height;
+@@ -471,6 +472,10 @@ struct d2d_bitmap
+     ID3D11Texture2D *msaa_load_texture;
+     ID3D11ShaderResourceView *msaa_load_srv;
+     unsigned int msaa_state;
++
++    BOOL cpu_enabled;
++    BYTE *cpu_data;
++    unsigned int cpu_state;
+ };
+ 
+ enum d2d_msaa_state
+@@ -485,6 +490,24 @@ enum d2d_msaa_state
+ void d2d_bitmap_msaa_resolve(struct d2d_bitmap *bitmap);
+ void d2d_bitmap_msaa_invalidate(struct d2d_bitmap *bitmap);
+ 
++enum d2d_cpu_state
++{
++    D2D_CPU_NONE,
++    D2D_CPU_SYNC,
++    D2D_CPU_DIRTY,
++};
++
++BYTE *d2d_bitmap_cpu_bits(struct d2d_bitmap *bitmap);
++void d2d_bitmap_cpu_upload(struct d2d_bitmap *bitmap);
++void d2d_bitmap_cpu_disable(struct d2d_bitmap *bitmap);
++BOOL d2d_bitmap_cpu_read(struct d2d_bitmap *bitmap, BYTE *dst, unsigned int pitch);
++void d2d_bitmap_cpu_store(struct d2d_bitmap *bitmap, const BYTE *src, unsigned int pitch);
++
++static inline void d2d_bitmap_cpu_invalidate(struct d2d_bitmap *bitmap)
++{
++    bitmap->cpu_state = D2D_CPU_NONE;
++}
++
+ HRESULT d2d_bitmap_create(struct d2d_device_context *context, D2D1_SIZE_U size, const void *src_data,
+         UINT32 pitch, const D2D1_BITMAP_PROPERTIES1 *desc, struct d2d_bitmap **bitmap);
+ HRESULT d2d_bitmap_create_shared(struct d2d_device_context *context, REFIID iid, void *data,
+diff --git a/dlls/d2d1/device.c b/dlls/d2d1/device.c
+--- a/dlls/d2d1/device.c
++++ b/dlls/d2d1/device.c
+@@ -328,6 +328,185 @@ static ID3D11RenderTargetView *d2d_device_context_get_target_rtv(struct d2d_devi
+     return bitmap->msaa_rtv;
+ }
+ 
++static void d2d_device_context_get_scissor_rect(const struct d2d_device_context *context, D3D11_RECT *rect)
++{
++    if (context->clip_stack.count)
++    {
++        const D2D1_RECT_F *clip_rect;
++        float w = context->pixel_size.width, h = context->pixel_size.height;
++
++        clip_rect = &context->clip_stack.stack[context->clip_stack.count - 1];
++        /* Clamp first: huge clips (e.g. layer bounds of +-1e30) would overflow the integers. */
++        rect->left = ceilf(min(max(clip_rect->left, 0.0f), w) - 0.5f);
++        rect->top = ceilf(min(max(clip_rect->top, 0.0f), h) - 0.5f);
++        rect->right = ceilf(min(max(clip_rect->right, 0.0f), w) - 0.5f);
++        rect->bottom = ceilf(min(max(clip_rect->bottom, 0.0f), h) - 0.5f);
++        if (rect->left < 0) rect->left = 0;
++        if (rect->top < 0) rect->top = 0;
++    }
++    else
++    {
++        rect->left = 0.0f;
++        rect->top = 0.0f;
++        rect->right = context->pixel_size.width;
++        rect->bottom = context->pixel_size.height;
++    }
++}
++
++static struct d2d_bitmap *d2d_device_context_get_cpu_target(struct d2d_device_context *context, D3D11_RECT *rect)
++{
++    struct d2d_bitmap *bitmap;
++
++    if (context->target.type != D2D_TARGET_BITMAP || context->target.hdc)
++        return NULL;
++    bitmap = context->target.bitmap;
++    if (!bitmap->cpu_enabled || (bitmap->format.format != DXGI_FORMAT_B8G8R8A8_UNORM
++            && bitmap->format.format != DXGI_FORMAT_R8G8B8A8_UNORM))
++        return NULL;
++    if (bitmap->pixel_size.width != context->pixel_size.width
++            || bitmap->pixel_size.height != context->pixel_size.height)
++        return NULL;
++
++    d2d_device_context_get_scissor_rect(context, rect);
++    rect->right = min(rect->right, (LONG)bitmap->pixel_size.width);
++    rect->bottom = min(rect->bottom, (LONG)bitmap->pixel_size.height);
++    return bitmap;
++}
++
++static BYTE d2d_cpu_unorm8(float f)
++{
++    unsigned int q;
++
++    if (!(f > 0.0f))
++        return 0;
++    if (f >= 1.0f)
++        return 255;
++    q = f * 4096.0f;
++    return (q * 255 + 2047) >> 12;
++}
++
++static void d2d_cpu_get_pixel(BYTE *p, const struct d2d_bitmap *bitmap, const D2D1_COLOR_F *c)
++{
++    if (bitmap->format.format == DXGI_FORMAT_B8G8R8A8_UNORM)
++    {
++        p[0] = d2d_cpu_unorm8(c->b);
++        p[2] = d2d_cpu_unorm8(c->r);
++    }
++    else
++    {
++        p[0] = d2d_cpu_unorm8(c->r);
++        p[2] = d2d_cpu_unorm8(c->b);
++    }
++    p[1] = d2d_cpu_unorm8(c->g);
++    p[3] = d2d_cpu_unorm8(c->a);
++}
++
++static BOOL d2d_device_context_cpu_clear(struct d2d_device_context *context, const D2D1_COLOR_F *colour)
++{
++    D2D1_COLOR_F c = {0.0f, 0.0f, 0.0f, 0.0f};
++    struct d2d_bitmap *bitmap;
++    unsigned int pitch;
++    D3D11_RECT rect;
++    BYTE pixel[4];
++    BYTE *bits;
++    LONG x, y;
++
++    if (!(bitmap = d2d_device_context_get_cpu_target(context, &rect)))
++        return FALSE;
++    if (bitmap->cpu_state == D2D_CPU_NONE && (rect.left || rect.top
++            || rect.right != bitmap->pixel_size.width || rect.bottom != bitmap->pixel_size.height))
++        return FALSE;
++    if (!(bits = d2d_bitmap_cpu_bits(bitmap)))
++        return FALSE;
++
++    if (colour)
++        c = *colour;
++    if (context->desc.pixelFormat.alphaMode == D2D1_ALPHA_MODE_IGNORE)
++        c.a = 1.0f;
++    c.r *= c.a;
++    c.g *= c.a;
++    c.b *= c.a;
++    TRACE("Clearing %s on the CPU.\n", wine_dbgstr_rect(&rect));
++    d2d_cpu_get_pixel(pixel, bitmap, &c);
++
++    pitch = bitmap->pixel_size.width * 4;
++    for (y = rect.top; y < rect.bottom; ++y)
++    {
++        BYTE *p = bits + y * pitch + rect.left * 4;
++
++        for (x = rect.left; x < rect.right; ++x, p += 4)
++            memcpy(p, pixel, 4);
++    }
++    bitmap->cpu_state = D2D_CPU_DIRTY;
++    return TRUE;
++}
++
++static BOOL d2d_device_context_cpu_draw_alpha(struct d2d_device_context *context, const RECT *bounds,
++        const BYTE *alpha, ID2D1Brush *brush)
++{
++    struct d2d_brush *brush_impl = unsafe_impl_from_ID2D1Brush(brush);
++    unsigned int pitch, width, i;
++    BYTE src[256][4], inv[256];
++    struct d2d_bitmap *bitmap;
++    D2D1_COLOR_F c, t;
++    D3D11_RECT rect;
++    float opacity;
++    BYTE *bits;
++    LONG x, y;
++
++    if (context->desc.dpiX != 96.0f || context->desc.dpiY != 96.0f
++            || context->drawing_state.primitiveBlend != D2D1_PRIMITIVE_BLEND_SOURCE_OVER
++            || !brush_impl || brush_impl->type != D2D_BRUSH_TYPE_SOLID)
++        return FALSE;
++    if (!(bitmap = d2d_device_context_get_cpu_target(context, &rect)) || bitmap->cpu_state == D2D_CPU_NONE)
++        return FALSE;
++    bits = bitmap->cpu_data;
++    TRACE("Drawing %s on the CPU.\n", wine_dbgstr_rect(bounds));
++
++    c = brush_impl->u.solid.color;
++    c.r *= c.a;
++    c.g *= c.a;
++    c.b *= c.a;
++    opacity = max(0.0f, min(brush_impl->opacity, 1.0f));
++    c.r *= opacity;
++    c.g *= opacity;
++    c.b *= opacity;
++    c.a *= opacity;
++    for (i = 0; i < 256; ++i)
++    {
++        float a = i / 255.0f;
++
++        t.r = c.r * a;
++        t.g = c.g * a;
++        t.b = c.b * a;
++        t.a = c.a * a;
++        d2d_cpu_get_pixel(src[i], bitmap, &t);
++        inv[i] = 255 - src[i][3];
++    }
++
++    rect.left = max(rect.left, bounds->left);
++    rect.top = max(rect.top, bounds->top);
++    rect.right = min(rect.right, bounds->right);
++    rect.bottom = min(rect.bottom, bounds->bottom);
++    pitch = bitmap->pixel_size.width * 4;
++    width = bounds->right - bounds->left;
++    for (y = rect.top; y < rect.bottom; ++y)
++    {
++        const BYTE *a = alpha + (y - bounds->top) * width + (rect.left - bounds->left);
++        BYTE *p = bits + y * pitch + rect.left * 4;
++
++        for (x = rect.left; x < rect.right; ++x, ++a, p += 4)
++        {
++            if (!*a)
++                continue;
++            for (i = 0; i < 4; ++i)
++                p[i] = min(255, src[*a][i] + (p[i] * inv[*a] + 127) / 255);
++        }
++    }
++    bitmap->cpu_state = D2D_CPU_DIRTY;
++    return TRUE;
++}
++
+ static void d2d_device_context_draw(struct d2d_device_context *render_target, enum d2d_shape_type shape_type,
+         ID3D11Buffer *ib, unsigned int index_count, ID3D11Buffer *vb, unsigned int vb_stride,
+         struct d2d_brush *brush, struct d2d_brush *opacity_brush)
+@@ -353,6 +532,7 @@ static void d2d_device_context_draw(struct d2d_device_context *render_target, en
+     if (render_target->cs)
+         EnterCriticalSection(render_target->cs);
+ 
++    d2d_bitmap_cpu_upload(render_target->target.bitmap);
+     ID3D11Device1_GetImmediateContext1(device, &context);
+     ID3D11DeviceContext1_SwapDeviceContextState(context, render_target->d3d_state, &prev_state);
+ 
+@@ -368,28 +548,7 @@ static void d2d_device_context_draw(struct d2d_device_context *render_target, en
+     ID3D11DeviceContext1_PSSetConstantBuffers(context, 0, 1, &ps_cb);
+     ID3D11DeviceContext1_PSSetShader(context, render_target->ps, NULL, 0);
+     ID3D11DeviceContext1_RSSetViewports(context, 1, &vp);
+-    if (render_target->clip_stack.count)
+-    {
+-        const D2D1_RECT_F *clip_rect;
+-
+-        float w = render_target->pixel_size.width, h = render_target->pixel_size.height;
+-
+-        clip_rect = &render_target->clip_stack.stack[render_target->clip_stack.count - 1];
+-        /* Clamp first: huge clips (e.g. layer bounds of +-1e30) would overflow the integers. */
+-        scissor_rect.left = ceilf(min(max(clip_rect->left, 0.0f), w) - 0.5f);
+-        scissor_rect.top = ceilf(min(max(clip_rect->top, 0.0f), h) - 0.5f);
+-        scissor_rect.right = ceilf(min(max(clip_rect->right, 0.0f), w) - 0.5f);
+-        scissor_rect.bottom = ceilf(min(max(clip_rect->bottom, 0.0f), h) - 0.5f);
+-        if (scissor_rect.left < 0) scissor_rect.left = 0;
+-        if (scissor_rect.top < 0) scissor_rect.top = 0;
+-    }
+-    else
+-    {
+-        scissor_rect.left = 0.0f;
+-        scissor_rect.top = 0.0f;
+-        scissor_rect.right = render_target->pixel_size.width;
+-        scissor_rect.bottom = render_target->pixel_size.height;
+-    }
++    d2d_device_context_get_scissor_rect(render_target, &scissor_rect);
+     ID3D11DeviceContext1_RSSetScissorRects(context, 1, &scissor_rect);
+     ID3D11DeviceContext1_RSSetState(context, render_target->rs);
+     ID3D11DeviceContext1_OMSetRenderTargets(context, 1, &rtv, NULL);
+@@ -411,6 +570,7 @@ static void d2d_device_context_draw(struct d2d_device_context *render_target, en
+         ID3D11DeviceContext1_Draw(context, index_count, 0);
+     if (msaa)
+         render_target->target.bitmap->msaa_state = D2D_MSAA_DIRTY;
++    d2d_bitmap_cpu_invalidate(render_target->target.bitmap);
+ 
+     ID3D11DeviceContext1_SwapDeviceContextState(context, prev_state, NULL);
+     ID3D11DeviceContext1_Release(context);
+@@ -1767,6 +1927,10 @@ static void d2d_device_context_draw_glyph_run_bitmap(struct d2d_device_context *
+         goto done;
+     }
+ 
++    if (texture_type == DWRITE_TEXTURE_ALIASED_1x1
++            && d2d_device_context_cpu_draw_alpha(context, &bounds, opacity_values, brush))
++        goto done;
++
+     bitmap_desc.pixelFormat.format = DXGI_FORMAT_A8_UNORM;
+     bitmap_desc.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
+     bitmap_desc.dpiX = context->desc.dpiX;
+@@ -2449,6 +2613,9 @@ static void STDMETHODCALLTYPE d2d_device_context_Clear(ID2D1DeviceContext6 *ifac
+         return;
+     }
+ 
++    if (d2d_device_context_cpu_clear(context, colour))
++        return;
++
+     ID3D11Device1_GetImmediateContext(context->d3d_device, &d3d_context);
+ 
+     if (FAILED(hr = ID3D11DeviceContext_Map(d3d_context, (ID3D11Resource *)context->vs_cb,
+@@ -4188,6 +4355,7 @@ static HRESULT STDMETHODCALLTYPE d2d_gdi_interop_render_target_GetDC(ID2D1GdiInt
+         return hr;
+ 
+     d2d_bitmap_msaa_resolve(render_target->target.bitmap);
++    d2d_bitmap_cpu_upload(render_target->target.bitmap);
+     hr = IDXGISurface1_GetDC(surface, mode != D2D1_DC_INITIALIZE_MODE_COPY, &render_target->target.hdc);
+     IDXGISurface1_Release(surface);
+ 
+@@ -4219,6 +4387,7 @@ static HRESULT STDMETHODCALLTYPE d2d_gdi_interop_render_target_ReleaseDC(ID2D1Gd
+     hr = IDXGISurface1_ReleaseDC(surface, update ? &update_rect : NULL);
+     IDXGISurface1_Release(surface);
+     d2d_bitmap_msaa_invalidate(render_target->target.bitmap);
++    d2d_bitmap_cpu_invalidate(render_target->target.bitmap);
+ 
+     return hr;
+ }
+diff --git a/dlls/d2d1/wic_render_target.c b/dlls/d2d1/wic_render_target.c
+--- a/dlls/d2d1/wic_render_target.c
++++ b/dlls/d2d1/wic_render_target.c
+@@ -32,6 +32,7 @@ static HRESULT d2d_wic_render_target_present(IUnknown *outer_unknown)
+     struct d2d_wic_render_target *render_target = impl_from_IUnknown(outer_unknown);
+     D3D10_MAPPED_TEXTURE2D mapped_texture;
+     ID3D10Resource *src_resource;
++    struct d2d_bitmap *target;
+     IWICBitmapLock *bitmap_lock;
+     UINT dst_size, dst_pitch;
+     ID3D10Device *device;
+@@ -40,18 +41,6 @@ static HRESULT d2d_wic_render_target_present(IUnknown *outer_unknown)
+     unsigned int i;
+     HRESULT hr;
+ 
+-    if (FAILED(hr = IDXGISurface_QueryInterface(render_target->dxgi_surface,
+-            &IID_ID3D10Resource, (void **)&src_resource)))
+-    {
+-        ERR("Failed to get source resource interface, hr %#lx.\n", hr);
+-        goto end;
+-    }
+-
+-    ID3D10Texture2D_GetDevice(render_target->readback_texture, &device);
+-    ID3D10Device_CopyResource(device, (ID3D10Resource *)render_target->readback_texture, src_resource);
+-    ID3D10Device_Release(device);
+-    ID3D10Resource_Release(src_resource);
+-
+     dst_rect.X = 0;
+     dst_rect.Y = 0;
+     dst_rect.Width = render_target->width;
+@@ -76,6 +65,27 @@ static HRESULT d2d_wic_render_target_present(IUnknown *outer_unknown)
+         goto end;
+     }
+ 
++    target = render_target->target_bitmap ? unsafe_impl_from_ID2D1Bitmap(render_target->target_bitmap) : NULL;
++    if (target && d2d_bitmap_cpu_read(target, dst, dst_pitch))
++    {
++        TRACE("Presented the CPU copy.\n");
++        IWICBitmapLock_Release(bitmap_lock);
++        goto end;
++    }
++
++    if (FAILED(hr = IDXGISurface_QueryInterface(render_target->dxgi_surface,
++            &IID_ID3D10Resource, (void **)&src_resource)))
++    {
++        ERR("Failed to get source resource interface, hr %#lx.\n", hr);
++        IWICBitmapLock_Release(bitmap_lock);
++        goto end;
++    }
++
++    ID3D10Texture2D_GetDevice(render_target->readback_texture, &device);
++    ID3D10Device_CopyResource(device, (ID3D10Resource *)render_target->readback_texture, src_resource);
++    ID3D10Device_Release(device);
++    ID3D10Resource_Release(src_resource);
++
+     if (FAILED(hr = ID3D10Texture2D_Map(render_target->readback_texture, 0, D3D10_MAP_READ, 0, &mapped_texture)))
+     {
+         ERR("Failed to map readback texture, hr %#lx.\n", hr);
+@@ -86,11 +96,9 @@ static HRESULT d2d_wic_render_target_present(IUnknown *outer_unknown)
+     src = mapped_texture.pData;
+ 
+     for (i = 0; i < render_target->height; ++i)
+-    {
+-        memcpy(dst, src, render_target->bpp * render_target->width);
+-        src += mapped_texture.RowPitch;
+-        dst += dst_pitch;
+-    }
++        memcpy(dst + i * dst_pitch, src + i * mapped_texture.RowPitch, render_target->bpp * render_target->width);
++    if (target)
++        d2d_bitmap_cpu_store(target, src, mapped_texture.RowPitch);
+ 
+     ID3D10Texture2D_Unmap(render_target->readback_texture, 0);
+     IWICBitmapLock_Release(bitmap_lock);
+@@ -127,6 +135,8 @@ static ULONG STDMETHODCALLTYPE d2d_wic_render_target_Release(IUnknown *iface)
+ 
+     if (!refcount)
+     {
++        if (render_target->target_bitmap)
++            ID2D1Bitmap_Release(render_target->target_bitmap);
+         IWICBitmap_Release(render_target->bitmap);
+         ID3D10Texture2D_Release(render_target->readback_texture);
+         IUnknown_Release(render_target->dxgi_inner);
+@@ -188,10 +198,12 @@ HRESULT d2d_wic_render_target_init(struct d2d_wic_render_target *render_target,
+ {
+     D2D1_RENDER_TARGET_PROPERTIES rt_desc;
+     D3D10_TEXTURE2D_DESC texture_desc;
++    ID2D1DeviceContext *context;
+     WICPixelFormatGUID bitmap_format;
+     ID3D10Texture2D *texture;
+     IDXGIDevice *dxgi_device;
+     ID2D1Device *device;
++    ID2D1Image *image;
+     HRESULT hr;
+ 
+     render_target->IUnknown_iface.lpVtbl = &d2d_wic_render_target_vtbl;
+@@ -305,6 +317,19 @@ HRESULT d2d_wic_render_target_init(struct d2d_wic_render_target *render_target,
+         return hr;
+     }
+ 
++    if (render_target->width * render_target->height <= 1024 * 1024 && SUCCEEDED(ID2D1RenderTarget_QueryInterface(
++            render_target->dxgi_target, &IID_ID2D1DeviceContext, (void **)&context)))
++    {
++        ID2D1DeviceContext_GetTarget(context, &image);
++        ID2D1DeviceContext_Release(context);
++        if (image)
++        {
++            if (SUCCEEDED(ID2D1Image_QueryInterface(image, &IID_ID2D1Bitmap, (void **)&render_target->target_bitmap)))
++                unsafe_impl_from_ID2D1Bitmap(render_target->target_bitmap)->cpu_enabled = TRUE;
++            ID2D1Image_Release(image);
++        }
++    }
++
+     render_target->bitmap = bitmap;
+     IWICBitmap_AddRef(bitmap);
+ 
