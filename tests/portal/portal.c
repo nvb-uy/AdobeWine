@@ -538,7 +538,7 @@ static int test_hook(void)
     ofn.nFilterIndex = 1;
     ofn.lpstrFile = file;
     ofn.nMaxFile = ARRAYSIZE(file);
-    ofn.lpstrTitle = L"Load Settings (portal smoke test)";
+    ofn.lpstrTitle = wcscmp(mode, L"hook") ? L"Load Settings (portal smoke test)" : L"";
     ofn.lCustData = 0xc0ffee;
     ofn.lpfnHook = hook_procW;
     ofn.Flags = 0x808804 | OFN_EXPLORER | OFN_ENABLEHOOK | OFN_ENABLETEMPLATEHANDLE;

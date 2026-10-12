@@ -101,6 +101,7 @@ check("hook", "template controls set from the portal and dialog hidden",
 check("hook", "file path and filter index in CDN_FILEOK",
       ("file path %s, filter index 2" % win("host/frame_0002.png")).lower() in out.lower(), out)
 check("hook", "one request", len(reqs) == 1, str(len(reqs)))
+check("hook", "default title for an empty one", bool(reqs) and reqs[0]["title"] == "Open File", str(reqs[:1]))
 if reqs:
     ch = {c[1]: c for c in opt(reqs[0], "choices", [])}
     check("hook", "template choices", sorted(ch) == sorted(["Settings:", "Slices:", "Save metadata", "Option 4"]) and

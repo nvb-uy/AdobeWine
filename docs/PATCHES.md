@@ -103,3 +103,4 @@ to WineHQ; help with that is very welcome.
 | 0092 | gdiplus | Antialiased fills of axis-aligned rectangles take their coverage from the covered sample rows and columns; pixel-aligned ones skip sampling and the alpha conversion | nvb-uy |
 | 0093 | win32u | 32-bpp alpha blends copy opaque source pixels and skip fully transparent ones | nvb-uy |
 | 0094 | gdiplus | ARGB to premultiplied conversion reuses the last result while pixels repeat and copies opaque ones | nvb-uy |
+| 0095 | comdlg32 | Portal dialogs without a title get "Open File" or "Save As" (Photoshop's File > Open came up untitled) | nvb-uy |

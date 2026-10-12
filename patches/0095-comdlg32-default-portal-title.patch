@@ -1,0 +1,36 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] comdlg32: Give untitled portal dialogs the default title.
+
+Photoshop opens files without a dialog title, so the desktop dialog came up with an empty title bar. Use "Open File" or "Save As" like Wine's own dialogs do.
+---
+diff --git a/dlls/comdlg32/filedlg.c b/dlls/comdlg32/filedlg.c
+--- a/dlls/comdlg32/filedlg.c
++++ b/dlls/comdlg32/filedlg.c
+@@ -2277,7 +2277,8 @@ static void filedlg_portal_show(HWND hwnd)
+         return;
+     }
+ 
+-    GetWindowTextW(hwnd, text, ARRAY_SIZE(text));
++    if (!GetWindowTextW(hwnd, text, ARRAY_SIZE(text)))
++        LoadStringW(COMDLG32_hInstance, save ? IDS_SAVE_AS : IDS_OPEN_FILE, text, ARRAY_SIZE(text));
+     portal_utf8(params->title_utf8, sizeof(params->title_utf8), text);
+     if (GetDlgItemTextW(hwnd, IDOK, text, ARRAY_SIZE(text)))
+         portal_label(params->accept_label, text, 0);
+diff --git a/dlls/comdlg32/itemdlg.c b/dlls/comdlg32/itemdlg.c
+--- a/dlls/comdlg32/itemdlg.c
++++ b/dlls/comdlg32/itemdlg.c
+@@ -2923,7 +2923,13 @@ static void portal_build_request(FileDialogImpl *This, struct portal_file_params
+     const WCHAR *name;
+ 
+     memset(params, 0, sizeof(*params));
+-    portal_utf8(params->title_utf8, sizeof(params->title_utf8), This->custom_title);
++    if (This->custom_title && *This->custom_title)
++        portal_utf8(params->title_utf8, sizeof(params->title_utf8), This->custom_title);
++    else
++    {
++        LoadStringW(COMDLG32_hInstance, save ? IDS_SAVE_AS : IDS_OPEN_FILE, path, ARRAY_SIZE(path));
++        portal_utf8(params->title_utf8, sizeof(params->title_utf8), path);
++    }
+     if (This->custom_okbutton && *This->custom_okbutton)
+         portal_label(params->accept_label, This->custom_okbutton, 0);
+     if (folder && get_shellitem_filesys_path(folder, path, ARRAY_SIZE(path)))
