@@ -4,36 +4,26 @@
 set -euo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd)/bin/env.sh"
 APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps"
+ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
 if [ "${1:-}" = --remove ]; then
-  rm -f "$APPS"/adobewine-*.desktop "$ICONS"/adobewine-*.png
+  rm -f "$APPS"/adobewine-*.desktop "$ICONS"/hicolor/*/apps/adobewine-*.png
   update-desktop-database "$APPS" 2>/dev/null || true
+  gtk-update-icon-cache -f -t "$ICONS/hicolor" >/dev/null 2>&1 || true
   echo "launchers removed"; exit 0
 fi
-mkdir -p "$APPS" "$ICONS"
+mkdir -p "$APPS"
 PF="$WINEPREFIX/drive_c/Program Files/Adobe"
 EXEC="\"$(printf '%s' "$ADOBEWINE_SRC/bin/adobewine" | sed -e 's/\\/\\\\\\\\/g' -e 's/["`$]/\\\\&/g' -e 's/%/%%/g')\""
 latest() {  # newest installed release folder of an app, e.g. "Adobe Photoshop 2025"
   local d; d="$(ls -d "$PF/$1 20"[0-9][0-9] 2>/dev/null | sort -V | tail -1)"
   basename "${d:-$1 2026}"
 }
-icon() {  # icon <name> <exe>: largest icon from the .exe, or an .ico next to it
-  local tmp; tmp="$(mktemp -d)"
-  if command -v 7z >/dev/null; then 7z x -y -o"$tmp" "$2" '.rsrc/ICON/*' '.rsrc/*/ICON/*' >/dev/null 2>&1 || true; fi
-  cp "$(dirname "$2")"/*Application_Icon*.ico "$tmp"/ 2>/dev/null || true
-  python3 - "$tmp" "$ICONS/adobewine-$1.png" <<'PY' || true
-import sys, glob, os
-from PIL import Image
-best = None
-for f in glob.glob(os.path.join(sys.argv[1], '**', '*.ico'), recursive=True, include_hidden=True):
-    try:
-        im = Image.open(f); size = max(im.info.get('sizes', {im.size}))
-        if not best or size > best[0]: best = (size, f)
-    except Exception: pass
-if best:
-    im = Image.open(best[1]); im.size = best[0]; im.save(sys.argv[2])
-PY
-  rm -rf "$tmp"
+icon() {
+  local f
+  for f in "$2" "$(dirname "$2")"/*Application_Icon*.ico; do
+    [ -f "$f" ] && python3 -I "$ADOBEWINE_SRC/scripts/exe-icon.py" "$f" "$ICONS" "adobewine-$1" 2>/dev/null && return
+  done
+  return 0
 }
 entry() {  # entry <name> <title> <categories> <mime> <wmclass> <exe>
   [ -f "$6" ] || return 0
@@ -69,4 +59,5 @@ Terminal=false
 Categories=Utility;
 EOF
 update-desktop-database "$APPS" 2>/dev/null || true
+gtk-update-icon-cache -f -t "$ICONS/hicolor" >/dev/null 2>&1 || true
 echo "launchers installed in $APPS"
