@@ -1,0 +1,57 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] gdiplus: Accumulate antialiasing coverage without per-pixel divisions.
+
+The sample grid is always 8 wide and 4 or 8 high, so add whole pixels of a span at once and scale alpha with shifts. Results are the same; fills of window sized rectangles take about half the time.
+---
+diff --git a/dlls/gdiplus/graphics.c b/dlls/gdiplus/graphics.c
+--- a/dlls/gdiplus/graphics.c
++++ b/dlls/gdiplus/graphics.c
+@@ -4622,12 +4622,12 @@ static void bitmap_scanline_span_fill(GpBitmap *dst_bitmap, const DWORD *src_row
+ 
+ static GpStatus SOFTWARE_GdipFillPathAntialiased(GpGraphics *graphics, GpBrush *brush, GpPath *path)
+ {
+-    INT ss_x = 8, ss_y = graphics->smoothing == SmoothingModeAntiAlias8x8 ? 8 : 4;
++    INT shift_y = graphics->smoothing == SmoothingModeAntiAlias8x8 ? 3 : 2, ss_x = 8, ss_y = 1 << shift_y;
+     struct region_element element = { RegionDataPath };
+     struct span_list spans = { 0 };
+     REAL offset, left, top, right, bottom;
+     GpRectF bounds, device_bounds;
+-    INT *coverage = NULL, *row, x, next;
++    INT *coverage = NULL, *row, x, last;
+     DWORD *pixels = NULL;
+     GpMatrix transform;
+     GpStatus stat;
+@@ -4684,17 +4684,28 @@ static GpStatus SOFTWARE_GdipFillPathAntialiased(GpGraphics *graphics, GpBrush *
+     {
+         for (i = 0; i < spans.length; i++)
+         {
+-            row = coverage + (spans.spans[i].y / ss_y - rect.Y) * rect.Width;
+-            for (x = spans.spans[i].x[0]; x < spans.spans[i].x[1]; x = next)
++            INT x0 = spans.spans[i].x[0] - sample_rect.left, x1 = spans.spans[i].x[1] - sample_rect.left;
++
++            if (x1 <= x0)
++                continue;
++            row = coverage + ((spans.spans[i].y - sample_rect.top) >> shift_y) * rect.Width;
++            x = x0 >> 3;
++            last = x1 >> 3;
++            if (x == last)
+             {
+-                next = min((x / ss_x + 1) * ss_x, spans.spans[i].x[1]);
+-                row[x / ss_x - rect.X] += next - x;
++                row[x] += x1 - x0;
++                continue;
+             }
++            row[x++] += 8 - (x0 & 7);
++            for (; x < last; x++)
++                row[x] += 8;
++            if (x1 & 7)
++                row[last] += x1 & 7;
+         }
+ 
+         for (i = 0; i < rect.Width * rect.Height; i++)
+             pixels[i] = (pixels[i] & 0xffffff) |
+-                (((pixels[i] >> 24) * coverage[i] + ss_x * ss_y / 2) / (ss_x * ss_y) << 24);
++                (((pixels[i] >> 24) * coverage[i] + (1 << (shift_y + 2))) >> (shift_y + 3) << 24);
+ 
+         stat = alpha_blend_pixels(graphics, rect.X, rect.Y, (BYTE *)pixels, rect.Width, rect.Height,
+             rect.Width * 4, PixelFormat32bppARGB);

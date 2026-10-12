@@ -87,3 +87,4 @@ to WineHQ; help with that is very welcome.
 | 0088 | explorer | Systray icon windows are named after their tooltip, so XEmbed hosts like xembedsniproxy can show a name | nvb-uy |
 | 0089 | gdiplus | Rectangle path regions are built from their corners instead of a sorted edge list (Photoshop Home visibility tests, 113 to 1 ms a frame) | nvb-uy |
 | 0090 | gdiplus | Region visibility tests build the region only inside the tested rectangle (non-rectangular clips, 917 tests 1982 to 30 ms) | nvb-uy |
+| 0091 | gdiplus | Antialiased fills add up coverage a pixel at a time and scale alpha with shifts instead of dividing every sample run | nvb-uy |
