@@ -1,0 +1,97 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] comdlg32: Show the portal again when OnFileOk keeps the dialog open.
+
+An application that refuses the chosen file from OnFileOk, or a refused overwrite, kept Show() returning as if the file had been accepted. Like the Explorer dialog, which stays open, the portal is shown again in the folder and with the name of the refused file.
+---
+diff --git a/dlls/comdlg32/itemdlg.c b/dlls/comdlg32/itemdlg.c
+--- a/dlls/comdlg32/itemdlg.c
++++ b/dlls/comdlg32/itemdlg.c
+@@ -2915,24 +2915,15 @@ static HRESULT portal_overwrite(FileDialogImpl *This)
+     return hr;
+ }
+ 
+-static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
++static void portal_build_request(FileDialogImpl *This, struct portal_file_params *params, IShellItem *folder,
++                                 customctrl **choice_map)
+ {
+     BOOL save = This->dlg_type == ITEMDLG_TYPE_SAVE;
+-    customctrl *choice_map[PORTAL_CHOICES_MAX];
+-    struct portal_file_params *params;
+-    IShellItem *folder;
+     WCHAR path[MAX_PATH];
+     const WCHAR *name;
+-    NTSTATUS status;
+-    HRESULT hr;
+-
+-    if (!(params = calloc(1, sizeof(*params)))) return E_OUTOFMEMORY;
+-
+-    if (This->filterspec_count)
+-        events_OnTypeChange(This);
+ 
++    memset(params, 0, sizeof(*params));
+     portal_utf8(params->title_utf8, sizeof(params->title_utf8), This->custom_title);
+-    folder = This->psi_setfolder ? This->psi_setfolder : This->psi_defaultfolder;
+     if (folder && get_shellitem_filesys_path(folder, path, ARRAY_SIZE(path)))
+         portal_unix_path(params->initial_dir_utf8, sizeof(params->initial_dir_utf8), path);
+ 
+@@ -2955,16 +2946,40 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+     if (This->filetypeindex < params->filter_count) params->current_filter_index = This->filetypeindex + 1;
+     params->max_results = (params->flags & PORTAL_OPEN_FLAG_MULTIPLE) ? 1024 : 1;
+     portal_build_choices(This, &params->choices, choice_map);
++}
+ 
+-    status = portal_call(save ? unix_portal_save_file : unix_portal_open_file, params, hwndOwner);
+-    TRACE("portal returned %#lx, %u files\n", status, params->result_count);
++static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
++{
++    IShellItem *folder = This->psi_setfolder ? This->psi_setfolder : This->psi_defaultfolder;
++    BOOL save = This->dlg_type == ITEMDLG_TYPE_SAVE;
++    customctrl *choice_map[PORTAL_CHOICES_MAX];
++    struct portal_file_params *params;
++    WCHAR path[MAX_PATH];
++    NTSTATUS status;
++    HRESULT hr;
+ 
+-    if (status == STATUS_CANCELLED || (!status && !params->result_count))
+-        hr = HRESULT_FROM_WIN32(ERROR_CANCELLED);
+-    else if (status)
+-        hr = E_FAIL;
+-    else
++    if (!(params = malloc(sizeof(*params)))) return E_OUTOFMEMORY;
++
++    if (This->filterspec_count)
++        events_OnTypeChange(This);
++
++    for (;;)
+     {
++        portal_build_request(This, params, folder, choice_map);
++        status = portal_call(save ? unix_portal_save_file : unix_portal_open_file, params, hwndOwner);
++        TRACE("portal returned %#lx, %u files\n", status, params->result_count);
++
++        if (status == STATUS_CANCELLED || (!status && !params->result_count))
++        {
++            hr = HRESULT_FROM_WIN32(ERROR_CANCELLED);
++            break;
++        }
++        if (status)
++        {
++            hr = E_FAIL;
++            break;
++        }
++
+         portal_apply_filter(This, params->result_filter);
+         portal_apply_choices(This, &params->choices, choice_map);
+ 
+@@ -2981,8 +2996,10 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+         if (SUCCEEDED(hr) && save && (This->options & FOS_OVERWRITEPROMPT) &&
+             lstrcmpiW(path, params->result_buffer) && PathFileExistsW(path))
+             hr = portal_overwrite(This);
+-        if (SUCCEEDED(hr)) hr = events_OnFileOk(This);
+-        if (hr != S_OK) hr = HRESULT_FROM_WIN32(ERROR_CANCELLED);
++        if (SUCCEEDED(hr) && (hr = events_OnFileOk(This)) == S_OK) break;
++
++        TRACE("%s refused (%#lx), asking again\n", debugstr_w(path), hr);
++        folder = This->psi_folder;
+     }
+ 
+     free(params);
