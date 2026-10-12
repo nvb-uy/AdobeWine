@@ -104,3 +104,4 @@ to WineHQ; help with that is very welcome.
 | 0093 | win32u | 32-bpp alpha blends copy opaque source pixels and skip fully transparent ones | nvb-uy |
 | 0094 | gdiplus | ARGB to premultiplied conversion reuses the last result while pixels repeat and copies opaque ones | nvb-uy |
 | 0095 | comdlg32 | Portal dialogs without a title get "Open File" or "Save As" (Photoshop's File > Open came up untitled) | nvb-uy |
+| 0096 | comdlg32 | Template choice labels come from the text left of the control (Save for Web's Settings list was "Option 1") | nvb-uy |

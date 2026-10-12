@@ -1,0 +1,52 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] comdlg32: Take portal choice labels from the text left of the control.
+
+Save for Web lists its two labels before both of its combo boxes, so the previous control was never the label and its Settings list showed up as "Option 1". Prefer the static text on the same row to the left of the control and only fall back to the previous one.
+---
+diff --git a/dlls/comdlg32/filedlg.c b/dlls/comdlg32/filedlg.c
+--- a/dlls/comdlg32/filedlg.c
++++ b/dlls/comdlg32/filedlg.c
+@@ -2104,15 +2104,38 @@ static HWND filedlg_next_radio(HWND ctrl)
+     return next;
+ }
+ 
+-static void filedlg_choice_label(HWND ctrl, WCHAR *text, UINT size)
++static BOOL filedlg_is_label(HWND hwnd)
+ {
+     WCHAR class[16];
+ 
++    if (!(GetWindowLongW(hwnd, GWL_STYLE) & WS_VISIBLE) || !GetWindowTextLengthW(hwnd)) return FALSE;
++    GetClassNameW(hwnd, class, ARRAY_SIZE(class));
++    return !wcsicmp(class, L"Static");
++}
++
++static void filedlg_choice_label(HWND ctrl, WCHAR *text, UINT size)
++{
++    HWND label = NULL, prev = ctrl, sibling;
++    RECT rc, r;
++    LONG mid, best = LONG_MAX;
++
+     text[0] = 0;
+-    while ((ctrl = GetWindow(ctrl, GW_HWNDPREV)) && !(GetWindowLongW(ctrl, GWL_STYLE) & WS_VISIBLE));
+-    if (!ctrl) return;
+-    GetClassNameW(ctrl, class, ARRAY_SIZE(class));
+-    if (!wcsicmp(class, L"Static")) GetWindowTextW(ctrl, text, size);
++    GetWindowRect(ctrl, &rc);
++    for (sibling = GetWindow(ctrl, GW_HWNDFIRST); sibling; sibling = GetWindow(sibling, GW_HWNDNEXT))
++    {
++        if (!filedlg_is_label(sibling)) continue;
++        GetWindowRect(sibling, &r);
++        mid = (r.top + r.bottom) / 2;
++        if (mid < rc.top || mid >= rc.bottom || r.left >= rc.left || rc.left - r.right >= best) continue;
++        best = rc.left - r.right;
++        label = sibling;
++    }
++    if (!label)
++    {
++        while ((prev = GetWindow(prev, GW_HWNDPREV)) && !(GetWindowLongW(prev, GWL_STYLE) & WS_VISIBLE));
++        if (prev && filedlg_is_label(prev)) label = prev;
++    }
++    if (label) GetWindowTextW(label, text, size);
+ }
+ 
+ static void filedlg_add_choice(struct portal_choices *choices, HWND *map, HWND ctrl, enum portal_choice_kind kind)
