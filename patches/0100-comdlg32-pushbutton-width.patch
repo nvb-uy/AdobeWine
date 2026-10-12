@@ -1,0 +1,24 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] comdlg32: Widen custom push buttons to fit their label.
+
+Push buttons added with IFileDialogCustomize::AddPushButton were always 160 pixels wide, so a longer label such as Photoshop's "Open from Adobe cloud storage" wrapped and its second line was cut off. Make them as wide as their label plus some padding when that is more.
+---
+diff --git a/dlls/comdlg32/itemdlg.c b/dlls/comdlg32/itemdlg.c
+--- a/dlls/comdlg32/itemdlg.c
++++ b/dlls/comdlg32/itemdlg.c
+@@ -1089,6 +1089,15 @@ static void customctrl_resize(FileDialogImpl *This, customctrl *ctrl)
+     switch(ctrl->type)
+     {
+     case IDLG_CCTRL_PUSHBUTTON:
++        ctrl_resize(ctrl->hwnd, 0, ~0u, TRUE);
++        GetWindowRect(ctrl->hwnd, &rc);
++        size = max(MulDiv(160, This->dpi_x, USER_DEFAULT_SCREEN_DPI),
++                   rc.right - rc.left - 4 + MulDiv(16, This->dpi_x, USER_DEFAULT_SCREEN_DPI));
++        SetWindowPos(ctrl->hwnd, NULL, 0, 0, size, rc.bottom - rc.top,
++                     SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
++        SetWindowPos(ctrl->wrapper_hwnd, NULL, 0, 0, size, rc.bottom - rc.top,
++                     SWP_NOZORDER|SWP_NOMOVE);
++        break;
+     case IDLG_CCTRL_COMBOBOX:
+     case IDLG_CCTRL_CHECKBUTTON:
+     case IDLG_CCTRL_TEXT:

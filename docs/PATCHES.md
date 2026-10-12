@@ -106,3 +106,4 @@ to WineHQ; help with that is very welcome.
 | 0095 | comdlg32 | Portal dialogs without a title get "Open File" or "Save As" (Photoshop's File > Open came up untitled) | nvb-uy |
 | 0096 | comdlg32 | Template choice labels come from the text left of the control (Save for Web's Settings list was "Option 1") | nvb-uy |
 | 0099 | win32u | GDI glyph advances come from bi-level hinting in every format, so text is drawn as wide as GetTextExtentPoint32 and DrawText measure it (message box lines cut off at the right edge, a wrapped and cut-off "Open from Adobe cloud storage" button) | nvb-uy |
+| 0100 | comdlg32 | IFileDialog custom push buttons grow to fit a long label instead of wrapping it | nvb-uy |
