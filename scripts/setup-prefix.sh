@@ -132,5 +132,6 @@ elif ! ls "$WINEPREFIX/drive_c/windows/Fonts/"segoeui.ttf >/dev/null 2>&1; then
   fi
 fi
 "$ADOBEWINE_SRC/scripts/register-fonts.sh"
+python3 -I "$ADOBEWINE_SRC/scripts/desktop-settings.py" --force
 wineserver -w
 echo "prefix ready: $WINEPREFIX ($(wine --version))"

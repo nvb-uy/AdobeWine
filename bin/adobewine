@@ -102,6 +102,7 @@ core_fonts() {
 core_fonts
 log="$ADOBEWINE_HOME/logs/$cmd-$(date +%Y%m%d-%H%M%S).log"
 echo "log: $log"
+python3 -I "$ADOBEWINE_SRC/scripts/desktop-settings.py"
 start=$SECONDS
 wine "$exe" "${args[@]}" > "$log" 2>&1
 rc=$?
