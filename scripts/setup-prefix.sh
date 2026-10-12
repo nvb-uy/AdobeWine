@@ -105,10 +105,16 @@ wine reg add 'HKCU\Software\Wine\AppDefaults\Photoshop.exe' /v Version /d win10 
 # own dxgi has composition swapchains (patches 0050, 0051), DXVK does not.
 wine reg add 'HKCU\Software\Wine\AppDefaults\msedgewebview2.exe\DllOverrides' /v dxgi /d builtin /f >/dev/null
 wine reg add 'HKCU\Software\Wine\AppDefaults\msedgewebview2.exe\DllOverrides' /v d3d11 /d builtin /f >/dev/null
-# X11 driver (through XWayland on Wayland desktops), and no window-manager decorations:
-# Adobe apps start maximised and a title bar would force a resize that leaves panels undrawn.
+# X11 driver (through XWayland on Wayland desktops). The Adobe main windows get no
+# window-manager decorations: they draw their own frame, start maximised, and a title bar
+# would force a resize that leaves panels undrawn. Photoshop's dialogs (owned windows) and
+# other programs get the desktop's title bar.
 wine reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d x11 /f >/dev/null
-wine reg add 'HKCU\Software\Wine\X11 Driver' /v Decorated /d N /f >/dev/null
+wine reg add 'HKCU\Software\Wine\X11 Driver' /v Decorated /d Y /f >/dev/null
+wine reg add 'HKCU\Software\Wine\AppDefaults\Photoshop.exe\X11 Driver' /v Decorated /d owned /f >/dev/null
+for a in Illustrator.exe "Adobe Premiere Pro.exe" "Adobe Audition.exe" "Adobe Media Encoder.exe" AfterFX.exe; do
+  wine reg add "HKCU\\Software\\Wine\\AppDefaults\\$a\\X11 Driver" /v Decorated /d N /f >/dev/null
+done
 wine reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f >/dev/null
 wine reg add 'HKCU\Software\Wine\Explorer' /v ShowSystray /t REG_DWORD /d 0 /f >/dev/null
 wine reg add 'HKCU\Software\Wine\DllOverrides' /v winemenubuilder.exe /d '' /f >/dev/null
