@@ -1,0 +1,115 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] gdiplus: Skip coverage sampling for antialiased fills of pixel-aligned rectangles.
+
+Most antialiased fills on Photoshop's Home screen are rectangles that land on pixel edges. Their coverage is full everywhere, so the brush pixels are used as they are, and an opaque solid brush is passed on as premultiplied to skip the alpha conversion. Other axis-aligned rectangles get their coverage from the sample rows and columns they cover.
+---
+diff --git a/dlls/gdiplus/gdiplus_private.h b/dlls/gdiplus/gdiplus_private.h
+--- a/dlls/gdiplus/gdiplus_private.h
++++ b/dlls/gdiplus/gdiplus_private.h
+@@ -165,6 +165,7 @@ extern void delete_element(region_element *element);
+ 
+ extern GpStatus get_region_hrgn(struct region_element *element, const RECT *bounds, HRGN *hrgn);
+ extern BOOL path_is_axis_aligned_rect(const GpPath *path, GpPointF *top_left, GpPointF *bottom_right);
++extern BOOL rect_path_to_rgn_rect(GpPath *path, const RECT *bounds, RECT *rc);
+ 
+ extern GpStatus get_hatch_data(GpHatchStyle hatchstyle, const unsigned char **result);
+ 
+diff --git a/dlls/gdiplus/graphics.c b/dlls/gdiplus/graphics.c
+--- a/dlls/gdiplus/graphics.c
++++ b/dlls/gdiplus/graphics.c
+@@ -4620,6 +4620,12 @@ static void bitmap_scanline_span_fill(GpBitmap *dst_bitmap, const DWORD *src_row
+     }
+ }
+ 
++static inline INT sample_overlap(INT start, INT size, INT low, INT high)
++{
++    INT a = max(start, low), b = min(start + size, high);
++    return b > a ? b - a : 0;
++}
++
+ static GpStatus SOFTWARE_GdipFillPathAntialiased(GpGraphics *graphics, GpBrush *brush, GpPath *path)
+ {
+     INT shift_y = graphics->smoothing == SmoothingModeAntiAlias8x8 ? 3 : 2, ss_x = 8, ss_y = 1 << shift_y;
+@@ -4627,11 +4633,13 @@ static GpStatus SOFTWARE_GdipFillPathAntialiased(GpGraphics *graphics, GpBrush *
+     struct span_list spans = { 0 };
+     REAL offset, left, top, right, bottom;
+     GpRectF bounds, device_bounds;
+-    INT *coverage = NULL, *row, x, last;
++    INT *coverage = NULL, *row, x, y, last;
++    PixelFormat format = PixelFormat32bppARGB;
+     DWORD *pixels = NULL;
+     GpMatrix transform;
+     GpStatus stat;
+-    RECT sample_rect;
++    RECT sample_rect, covered;
++    BOOL is_rect = FALSE, full;
+     GpRect rect;
+     size_t i;
+ 
+@@ -4670,17 +4678,48 @@ static GpStatus SOFTWARE_GdipFillPathAntialiased(GpGraphics *graphics, GpBrush *
+     SetRect(&sample_rect, rect.X * ss_x, rect.Y * ss_y, (rect.X + rect.Width) * ss_x, (rect.Y + rect.Height) * ss_y);
+     GdipSetMatrixElements(&transform, ss_x, 0.0, 0.0, ss_y, 0.0, 0.0);
+ 
++    stat = GdipTransformPath(element.elementdata.path, &transform);
++    if (stat == Ok)
++        is_rect = rect_path_to_rgn_rect(element.elementdata.path, &sample_rect, &covered);
++
++    full = is_rect && EqualRect(&covered, &sample_rect);
++
+     pixels = calloc(rect.Width * rect.Height, sizeof(*pixels));
+-    coverage = calloc(rect.Width * rect.Height, sizeof(*coverage));
+-    if (!pixels || !coverage)
++    if (!full)
++        coverage = calloc(is_rect ? rect.Width : rect.Width * rect.Height, sizeof(*coverage));
++    if (!pixels || (!full && !coverage))
+         stat = OutOfMemory;
+-    if (stat == Ok)
+-        stat = GdipTransformPath(element.elementdata.path, &transform);
+-    if (stat == Ok)
++    if (stat == Ok && !is_rect)
+         stat = region_element_to_spans(&element, &sample_rect, &spans);
+     if (stat == Ok)
+         stat = brush_fill_pixels(graphics, brush, pixels, &rect, rect.Width);
+-    if (stat == Ok)
++    if (stat == Ok && is_rect)
++    {
++        if (full)
++        {
++            if (brush->bt == BrushTypeSolidColor && (((GpSolidFill *)brush)->color >> 24) == 0xff)
++                format = PixelFormat32bppPARGB;
++        }
++        else
++        {
++            for (x = 0; x < rect.Width; x++)
++                coverage[x] = sample_overlap(sample_rect.left + x * 8, 8, covered.left, covered.right);
++
++            for (y = 0; y < rect.Height; y++)
++            {
++                INT rows = sample_overlap(sample_rect.top + (y << shift_y), ss_y, covered.top, covered.bottom);
++                DWORD *line = pixels + y * rect.Width;
++
++                for (x = 0; x < rect.Width; x++)
++                    line[x] = (line[x] & 0xffffff) |
++                        (((line[x] >> 24) * rows * coverage[x] + (1 << (shift_y + 2))) >> (shift_y + 3) << 24);
++            }
++        }
++
++        stat = alpha_blend_pixels(graphics, rect.X, rect.Y, (BYTE *)pixels, rect.Width, rect.Height,
++            rect.Width * 4, format);
++    }
++    else if (stat == Ok)
+     {
+         for (i = 0; i < spans.length; i++)
+         {
+diff --git a/dlls/gdiplus/region.c b/dlls/gdiplus/region.c
+--- a/dlls/gdiplus/region.c
++++ b/dlls/gdiplus/region.c
+@@ -1111,7 +1111,7 @@ static inline INT clamp_rgn_x(INT x, const RECT *bounds)
+     return x;
+ }
+ 
+-static BOOL rect_path_to_rgn_rect(GpPath *path, const RECT *bounds, RECT *rc)
++BOOL rect_path_to_rgn_rect(GpPath *path, const RECT *bounds, RECT *rc)
+ {
+     GpPointF top_left, bottom_right;
+ 
