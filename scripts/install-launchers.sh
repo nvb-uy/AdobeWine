@@ -111,14 +111,5 @@ EOF
     xdg-mime default adobe-photoshop.desktop image/vnd.adobe.photoshop 2>/dev/null || true
   fi
 fi
-cat > "$APPS/adobewine-off.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=Stop all Adobe apps (AdobeWine)
-Exec=$EXEC off
-Icon=process-stop
-Terminal=false
-Categories=Utility;
-EOF
 refresh
 echo "launchers installed in $APPS"
