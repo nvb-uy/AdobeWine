@@ -1,0 +1,242 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] gdiplus: Convert only the sampled rows of downscaled bitmaps.
+
+Drawing a large bitmap at a small size read and converted the whole source rectangle first, even though only a few rows around each destination row are sampled. Photoshop's Home screen draws 1200x1200 thumbnails at 41x41 several times per frame. When the source is more than four times as tall as the destination and rows map to rows, only the rows next to the sampled positions are read.
+---
+diff --git a/dlls/gdiplus/graphics.c b/dlls/gdiplus/graphics.c
+--- a/dlls/gdiplus/graphics.c
++++ b/dlls/gdiplus/graphics.c
+@@ -1175,6 +1175,25 @@ static void get_bitmap_sample_size(InterpolationMode interpolation, WrapMode wra
+     rect->Height = bottom - top + 1;
+ }
+ 
++static INT tile_coordinate(INT v, UINT size, BOOL flip)
++{
++    /* Tiling. Make sure co-ordinates are positive as it simplifies the math. */
++    if (v < 0)
++        v = size*2 + v % (INT)(size * 2);
++
++    if (flip)
++    {
++        if ((v / size) % 2 == 0)
++            v = v % size;
++        else
++            v = size - 1 - v % size;
++    }
++    else
++        v = v % size;
++
++    return v;
++}
++
+ static ARGB sample_bitmap_pixel(GDIPCONST GpRect *src_rect, LPBYTE bits, UINT width,
+     UINT height, INT x, INT y, GDIPCONST GpImageAttributes *attributes)
+ {
+@@ -1185,31 +1204,8 @@ static ARGB sample_bitmap_pixel(GDIPCONST GpRect *src_rect, LPBYTE bits, UINT wi
+     }
+     else
+     {
+-        /* Tiling. Make sure co-ordinates are positive as it simplifies the math. */
+-        if (x < 0)
+-            x = width*2 + x % (INT)(width * 2);
+-        if (y < 0)
+-            y = height*2 + y % (INT)(height * 2);
+-
+-        if (attributes->wrap & WrapModeTileFlipX)
+-        {
+-            if ((x / width) % 2 == 0)
+-                x = x % width;
+-            else
+-                x = width - 1 - x % width;
+-        }
+-        else
+-            x = x % width;
+-
+-        if (attributes->wrap & WrapModeTileFlipY)
+-        {
+-            if ((y / height) % 2 == 0)
+-                y = y % height;
+-            else
+-                y = height - 1 - y % height;
+-        }
+-        else
+-            y = y % height;
++        x = tile_coordinate(x, width, attributes->wrap & WrapModeTileFlipX);
++        y = tile_coordinate(y, height, attributes->wrap & WrapModeTileFlipY);
+     }
+ 
+     if (x < src_rect->X || y < src_rect->Y || x >= src_rect->X + src_rect->Width || y >= src_rect->Y + src_rect->Height)
+@@ -1290,6 +1286,91 @@ static ARGB resample_bitmap_pixel(GDIPCONST GpRect *src_rect, LPBYTE bits, UINT
+     }
+ }
+ 
++static void mark_sampled_row(BYTE *rows, const GpRect *src_rect, UINT height,
++    const GpImageAttributes *attributes, INT y)
++{
++    if (attributes->wrap == WrapModeClamp)
++    {
++        if (y < 0 || y >= height)
++            return;
++    }
++    else
++        y = tile_coordinate(y, height, attributes->wrap & WrapModeTileFlipY);
++
++    if (y >= src_rect->Y && y < src_rect->Y + src_rect->Height)
++        rows[y - src_rect->Y] = 1;
++}
++
++static BYTE *get_sampled_rows(const GpRect *src_rect, UINT height, const GpImageAttributes *attributes,
++    const GpMatrix *dst_to_src, const RECT *dst_area)
++{
++    REAL y_dy = dst_to_src->matrix[3];
++    REAL y = dst_to_src->matrix[5] + dst_area->left * dst_to_src->matrix[1] + dst_area->top * y_dy;
++    INT i, row, last, count = dst_area->bottom - dst_area->top;
++    BYTE *rows;
++
++    if (!(rows = calloc(src_rect->Height, 1)))
++        return NULL;
++
++    for (i = 0; i < count; i++, y += y_dy)
++    {
++        if (!(fabsf(y) * count < 0x400000))
++        {
++            free(rows);
++            return NULL;
++        }
++
++        last = ceilf(y) + 1;
++        for (row = floorf(y) - 1; row <= last; row++)
++            mark_sampled_row(rows, src_rect, height, attributes, row);
++    }
++
++    return rows;
++}
++
++static GpStatus read_bitmap_rows(GpBitmap *bitmap, const GpRect *src_rect, BYTE *data, INT stride,
++    const BYTE *rows, const GpImageAttributes *attributes)
++{
++    GpStatus stat = Ok;
++    BitmapData locked;
++    GpRect rect;
++    INT y = 0, end;
++
++    while (stat == Ok && y < src_rect->Height)
++    {
++        if (!rows[y])
++        {
++            y++;
++            continue;
++        }
++
++        for (end = y + 1; end < src_rect->Height && rows[end]; end++)
++            ;
++
++        rect.X = src_rect->X;
++        rect.Y = src_rect->Y + y;
++        rect.Width = src_rect->Width;
++        rect.Height = end - y;
++        locked.Width = rect.Width;
++        locked.Height = rect.Height;
++        locked.Stride = stride;
++        locked.PixelFormat = PixelFormat32bppARGB;
++        locked.Scan0 = data + y * stride;
++
++        stat = GdipBitmapLockBits(bitmap, &rect, ImageLockModeRead|ImageLockModeUserInputBuf,
++            PixelFormat32bppARGB, &locked);
++        if (stat == Ok)
++            stat = GdipBitmapUnlockBits(bitmap, &locked);
++        if (stat == Ok)
++            apply_image_attributes(attributes, data + y * stride, rect.Width, rect.Height,
++                stride, ColorAdjustTypeBitmap, PixelFormat32bppARGB);
++
++        y = end;
++    }
++
++    return stat;
++}
++
+ static REAL intersect_line_scanline(const GpPointF *p1, const GpPointF *p2, REAL y)
+ {
+     return (p1->X - p2->X) * (p2->Y - y) / (p2->Y - p1->Y) + p2->X;
+@@ -3377,7 +3458,8 @@ GpStatus WINGDIPAPI GdipDrawImagePointsRect(GpGraphics *graphics, GpImage *image
+             GpRectF graphics_bounds;
+             GpRect src_area;
+             int i, x, y, src_stride, dst_stride, dst_width, dst_height;
+-            LPBYTE src_data, dst_data, dst_dyn_data=NULL;
++            LPBYTE src_data, dst_data, dst_dyn_data=NULL, rows=NULL;
++            GpMatrix dst_to_src;
+             BitmapData lockeddata;
+             InterpolationMode interpolation = graphics->interpolation;
+             PixelOffsetMode offset_mode = graphics->pixeloffset;
+@@ -3443,29 +3525,9 @@ GpStatus WINGDIPAPI GdipDrawImagePointsRect(GpGraphics *graphics, GpImage *image
+             else
+                 lockeddata.PixelFormat = PixelFormat32bppARGB;
+ 
+-            stat = GdipBitmapLockBits(bitmap, &src_area, ImageLockModeRead|ImageLockModeUserInputBuf,
+-                lockeddata.PixelFormat, &lockeddata);
+-
+-            if (stat == Ok)
+-                stat = GdipBitmapUnlockBits(bitmap, &lockeddata);
+-
+-            if (stat != Ok)
+-            {
+-                free(src_data);
+-                return stat;
+-            }
+-
+-            apply_image_attributes(imageAttributes, src_data,
+-                src_area.Width, src_area.Height,
+-                src_stride, ColorAdjustTypeBitmap, lockeddata.PixelFormat);
+-
+             if (do_resampling)
+             {
+-                GpMatrix dst_to_src;
+                 REAL m11, m12, m21, m22, mdx, mdy;
+-                REAL x_dx, x_dy, y_dx, y_dy;
+-                ARGB *dst_color;
+-                GpPointF src_pointf_row, src_pointf;
+ 
+                 m11 = (ptf[1].X - ptf[0].X) / srcwidth;
+                 m12 = (ptf[1].Y - ptf[0].Y) / srcwidth;
+@@ -3483,6 +3545,41 @@ GpStatus WINGDIPAPI GdipDrawImagePointsRect(GpGraphics *graphics, GpImage *image
+                     return stat;
+                 }
+ 
++                if (!dst_to_src.matrix[1] && src_area.Height / 4 > dst_area.bottom - dst_area.top)
++                    rows = get_sampled_rows(&src_area, bitmap->height, imageAttributes, &dst_to_src, &dst_area);
++            }
++
++            if (rows)
++            {
++                stat = read_bitmap_rows(bitmap, &src_area, src_data, src_stride, rows, imageAttributes);
++                free(rows);
++            }
++            else
++            {
++                stat = GdipBitmapLockBits(bitmap, &src_area, ImageLockModeRead|ImageLockModeUserInputBuf,
++                    lockeddata.PixelFormat, &lockeddata);
++
++                if (stat == Ok)
++                    stat = GdipBitmapUnlockBits(bitmap, &lockeddata);
++
++                if (stat == Ok)
++                    apply_image_attributes(imageAttributes, src_data,
++                        src_area.Width, src_area.Height,
++                        src_stride, ColorAdjustTypeBitmap, lockeddata.PixelFormat);
++            }
++
++            if (stat != Ok)
++            {
++                free(src_data);
++                return stat;
++            }
++
++            if (do_resampling)
++            {
++                REAL x_dx, x_dy, y_dx, y_dy;
++                ARGB *dst_color;
++                GpPointF src_pointf_row, src_pointf;
++
+                 dst_stride = sizeof(ARGB) * (dst_area.right - dst_area.left);
+                 x_dx = dst_to_src.matrix[0];
+                 x_dy = dst_to_src.matrix[1];
