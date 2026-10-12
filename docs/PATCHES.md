@@ -83,6 +83,7 @@ to WineHQ; help with that is very welcome.
 | 0071 | msvcp140 | Concurrency::details::platform::GetNextAsyncId (AdobeNotificationHelper aborted on the stub) | nvb-uy |
 | 0072 | comdlg32 | Portal helpers shared by the Explorer and IFileDialog dialogs, one request structure for open and save | nvb-uy |
 | 0073 | comdlg32 | Portal dialogs wait on a worker thread while the app keeps dispatching messages, modal to the owner, which is passed as the parent window | nvb-uy |
+| 0074 | comdlg32 | Portal requests listen for their response before sending, give up when the portal goes away, and the FileChooser version is probed first | nvb-uy |
 | 0085 | wineboot | No "configuration is being updated" window while the prefix is updated | nvb-uy |
 | 0086 | user32 | Windows without an icon get the executable's icon instead of the Wine logo | nvb-uy |
 | 0087 | win32u | `Decorated=owned` in the X11 Driver key lets the window manager decorate owned windows (dialogs) only | nvb-uy |

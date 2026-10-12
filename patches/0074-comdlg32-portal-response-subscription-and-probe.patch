@@ -1,0 +1,354 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] comdlg32: Subscribe to the portal response before the request and probe the file chooser.
+
+A portal that answers before the method call returns was never heard, and one that went away left the dialog waiting forever. The FileChooser version is read once to know whether the portal is there at all and whether it can pick folders, and a failed request falls back to Wine's dialog.
+---
+diff --git a/dlls/comdlg32/filedlg.c b/dlls/comdlg32/filedlg.c
+--- a/dlls/comdlg32/filedlg.c
++++ b/dlls/comdlg32/filedlg.c
+@@ -4530,12 +4530,6 @@ BOOL WINAPI GetOpenFileNameW(OPENFILENAMEW *ofn)
+         {
+             TRACE("Portal was cancelled, returning FALSE\n");
+         }
+-        else if (status != STATUS_NOT_SUPPORTED && portal_get_policy() == PORTAL_POLICY_FORCE)
+-        {
+-            /* FORCE never silently switches to the Wine dialog after a portal failure */
+-            WARN("portal failed (status %#lx), FORCE policy refuses the Wine dialog\n", (long)status);
+-            COMDLG32_SetCommDlgExtendedError(CDERR_DIALOGFAILURE);
+-        }
+         else
+         {
+             TRACE("Portal failed or not supported, falling back to Wine dialog\n");
+@@ -4757,12 +4751,6 @@ BOOL WINAPI GetSaveFileNameW(
+         {
+             TRACE("Portal was cancelled, returning FALSE\n");
+         }
+-        else if (status != STATUS_NOT_SUPPORTED && portal_get_policy() == PORTAL_POLICY_FORCE)
+-        {
+-            /* FORCE never silently switches to the Wine dialog after a portal failure */
+-            WARN("portal failed (status %#lx), FORCE policy refuses the Wine dialog\n", (long)status);
+-            COMDLG32_SetCommDlgExtendedError(CDERR_DIALOGFAILURE);
+-        }
+         else
+         {
+             TRACE("Portal failed or not supported, falling back to Wine dialog\n");
+diff --git a/dlls/comdlg32/itemdlg.c b/dlls/comdlg32/itemdlg.c
+--- a/dlls/comdlg32/itemdlg.c
++++ b/dlls/comdlg32/itemdlg.c
+@@ -2598,6 +2598,7 @@ static BOOL portal_supports_itemdlg_options(FileDialogImpl *This)
+ static BOOL should_use_portal_for_itemdlg(FileDialogImpl *This)
+ {
+     enum portal_policy policy = portal_get_policy();
++    UINT version;
+ 
+     if (policy == PORTAL_POLICY_NEVER)
+         return FALSE;
+@@ -2622,7 +2623,13 @@ static BOOL should_use_portal_for_itemdlg(FileDialogImpl *This)
+         }
+     }
+ 
+-    return portal_available();
++    version = portal_version();
++    if ((This->options & FOS_PICKFOLDERS) && version < 3)
++    {
++        TRACE("file chooser version %u cannot pick folders\n", version);
++        return FALSE;
++    }
++    return version != 0;
+ }
+ 
+ static HRESULT create_shell_item_array_from_paths(WCHAR **paths, IShellItemArray **ppsia)
+@@ -3259,11 +3266,6 @@ static HRESULT WINAPI IFileDialog2_fnShow(IFileDialog2 *iface, HWND hwndOwner)
+         TRACE("IFileDialog2_Show returning %08lx from portal\n", hr);
+         if (hr != E_FAIL)
+             return hr;
+-        if (portal_get_policy() == PORTAL_POLICY_FORCE)
+-        {
+-            TRACE("portal attempt failed (hr=%08lx), FORCE policy refuses native itemdlg fallback\n", hr);
+-            return hr;
+-        }
+         TRACE("portal attempt failed (hr=%08lx), falling back to native itemdlg\n", hr);
+     }
+ 
+diff --git a/dlls/comdlg32/portal.c b/dlls/comdlg32/portal.c
+--- a/dlls/comdlg32/portal.c
++++ b/dlls/comdlg32/portal.c
+@@ -117,11 +117,14 @@ NTSTATUS portal_call(enum comdlg32_unix_funcs code, struct portal_file_params *p
+     return status;
+ }
+ 
+-BOOL portal_available(void)
++UINT portal_version(void)
+ {
+     struct portal_is_available_params params = {0};
++    static UINT version;
+ 
+-    return COMDLG32_init_unix_call() && !WINE_UNIX_CALL(unix_portal_is_available, &params);
++    if (!version && COMDLG32_init_unix_call() && !WINE_UNIX_CALL(unix_portal_is_available, &params))
++        version = params.version;
++    return version;
+ }
+ 
+ void portal_utf8(char *dst, size_t size, const WCHAR *str)
+diff --git a/dlls/comdlg32/portal_dbus.c b/dlls/comdlg32/portal_dbus.c
+--- a/dlls/comdlg32/portal_dbus.c
++++ b/dlls/comdlg32/portal_dbus.c
+@@ -57,6 +57,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(comdlg32);
+     DO_FUNC(dbus_bus_add_match); \
+     DO_FUNC(dbus_bus_remove_match); \
+     DO_FUNC(dbus_bus_get); \
++    DO_FUNC(dbus_bus_get_unique_name); \
+     DO_FUNC(dbus_connection_add_filter); \
+     DO_FUNC(dbus_connection_remove_filter); \
+     DO_FUNC(dbus_connection_read_write_dispatch); \
+@@ -118,6 +119,7 @@ struct portal_context
+     DBusConnection *connection;
+     char *request_path;         /* Portal request object path */
+     BOOL filter_added;
++    BOOL owner_match_added;
+     BOOL response_received;
+     UINT response_code;         /* 0=success, 1=cancelled, 2=error */
+     char **result_uris;         /* file:// URIs from portal */
+@@ -442,6 +444,21 @@ static DBusHandlerResult portal_response_filter(DBusConnection *conn, DBusMessag
+     if (!interface || !member || !path)
+         return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+ 
++    if (!strcmp(interface, "org.freedesktop.DBus") && !strcmp(member, "NameOwnerChanged"))
++    {
++        const char *name, *old_owner, *new_owner;
++
++        if (p_dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &name, DBUS_TYPE_STRING, &old_owner,
++                                    DBUS_TYPE_STRING, &new_owner, DBUS_TYPE_INVALID) &&
++            !strcmp(name, "org.freedesktop.portal.Desktop") && !new_owner[0])
++        {
++            WARN("the portal went away\n");
++            ctx->response_code = 2;
++            ctx->response_received = TRUE;
++        }
++        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
++    }
++
+     /* Check if this is a Response signal on org.freedesktop.portal.Request */
+     if (strcmp(interface, "org.freedesktop.portal.Request") != 0 ||
+         strcmp(member, "Response") != 0)
+@@ -673,6 +690,38 @@ done:
+     return DBUS_HANDLER_RESULT_HANDLED;
+ }
+ 
++static const char owner_match[] = "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',"
++                                  "member='NameOwnerChanged',arg0='org.freedesktop.portal.Desktop'";
++
++static BOOL add_request_match(struct portal_context *ctx, const char *path)
++{
++    char rule[512];
++    DBusError error;
++
++    free(ctx->request_path);
++    ctx->request_path = strdup(path);
++    snprintf(rule, sizeof(rule), "type='signal',interface='org.freedesktop.portal.Request',path='%s'", path);
++    p_dbus_error_init(&error);
++    p_dbus_bus_add_match(ctx->connection, rule, &error);
++    if (p_dbus_error_is_set(&error))
++    {
++        WARN("bus_add_match failed for '%s': %s\n", rule, error.message);
++        p_dbus_error_free(&error);
++        return FALSE;
++    }
++    return TRUE;
++}
++
++static void remove_request_match(struct portal_context *ctx)
++{
++    char rule[512];
++
++    if (!ctx->request_path) return;
++    snprintf(rule, sizeof(rule), "type='signal',interface='org.freedesktop.portal.Request',path='%s'",
++             ctx->request_path);
++    p_dbus_bus_remove_match(ctx->connection, rule, NULL);
++}
++
+ /* Initialize portal connection */
+ static NTSTATUS portal_init(struct portal_context *ctx)
+ {
+@@ -706,28 +755,10 @@ static NTSTATUS portal_init(struct portal_context *ctx)
+ static void portal_cleanup(struct portal_context *ctx)
+ {
+     UINT i;
+-    char match_rule[512];
+-    DBusError error;
+ 
+     if (ctx->request_path)
+     {
+-        if (ctx->connection)
+-        {
+-            p_dbus_error_init(&error);
+-            snprintf(match_rule, sizeof(match_rule),
+-                     "type='signal',interface='org.freedesktop.portal.Request',path='%s'",
+-                     ctx->request_path);
+-            p_dbus_bus_remove_match(ctx->connection, match_rule, &error);
+-            if (p_dbus_error_is_set(&error))
+-            {
+-                WARN("portal_cleanup: bus_remove_match failed for '%s': %s (%s)\n",
+-                    match_rule,
+-                    error.message ? error.message : "(no message)",
+-                    error.name ? error.name : "(no name)");
+-                p_dbus_error_free(&error);
+-            }
+-        }
+-
++        if (ctx->connection) remove_request_match(ctx);
+         free(ctx->request_path);
+         ctx->request_path = NULL;
+     }
+@@ -742,6 +773,8 @@ static void portal_cleanup(struct portal_context *ctx)
+ 
+     if (ctx->connection)
+     {
++        if (ctx->owner_match_added)
++            p_dbus_bus_remove_match(ctx->connection, owner_match, NULL);
+         if (ctx->filter_added)
+         {
+             p_dbus_connection_remove_filter(ctx->connection, portal_response_filter, ctx);
+@@ -770,9 +803,8 @@ static NTSTATUS portal_call_and_wait(struct portal_context *ctx,
+     DBusMessage *request, *reply;
+     DBusMessageIter args, options_dict;
+     DBusError error;
+-    const char *request_handle;
+-    char match_rule[512];
+-    char token[64];
++    const char *request_handle, *unique;
++    char token[64], path[512], *p;
+     NTSTATUS status = STATUS_INTERNAL_ERROR;
+     static unsigned int token_seq;
+ 
+@@ -807,6 +839,17 @@ static NTSTATUS portal_call_and_wait(struct portal_context *ctx,
+     snprintf(token, sizeof(token), "wine%u_%u", (UINT)getpid(), __sync_add_and_fetch(&token_seq, 1));
+     append_string_option(&options_dict, "handle_token", token);
+ 
++    p_dbus_connection_add_filter(ctx->connection, portal_response_filter, ctx, NULL);
++    ctx->filter_added = TRUE;
++    p_dbus_bus_add_match(ctx->connection, owner_match, NULL);
++    ctx->owner_match_added = TRUE;
++    if ((unique = p_dbus_bus_get_unique_name(ctx->connection)))
++    {
++        snprintf(path, sizeof(path), "/org/freedesktop/portal/desktop/request/%s/%s", unique + 1, token);
++        for (p = path; *p; p++) if (*p == '.') *p = '_';
++        add_request_match(ctx, path);
++    }
++
+ 	/* 2. Open dialog mode flags */
+ 	if (strcmp(method, "OpenFile") == 0)
+     {
+@@ -903,32 +946,16 @@ static NTSTATUS portal_call_and_wait(struct portal_context *ctx,
+ 		return STATUS_INTERNAL_ERROR;
+ 	}
+ 
+-	if (ctx->request_path) free(ctx->request_path);
+-	ctx->request_path = strdup(request_handle);
+-	p_dbus_message_unref(reply);
+-
+-    /* Signal filter setup */
+-    p_dbus_connection_add_filter(ctx->connection, portal_response_filter, ctx, NULL);
+-    ctx->filter_added = TRUE;
+-
+-    p_dbus_error_init(&error);
+-    snprintf(match_rule, sizeof(match_rule),
+-             "type='signal',interface='org.freedesktop.portal.Request',path='%s'",
+-             ctx->request_path);
+-
+-    p_dbus_bus_add_match(ctx->connection, match_rule, &error);
+-	if (p_dbus_error_is_set(&error))
+-	{
+-        WARN("portal_call_and_wait: bus_add_match failed for '%s': %s (%s)\n",
+-            match_rule,
+-            error.message ? error.message : "(no message)",
+-            error.name ? error.name : "(no name)");
+-		p_dbus_error_free(&error);
+-		return STATUS_INTERNAL_ERROR;
+-	}
+-
+-    /* Wait for response */
+-    ctx->response_received = FALSE;
++    if (!ctx->request_path || strcmp(ctx->request_path, request_handle))
++    {
++        remove_request_match(ctx);
++        if (!add_request_match(ctx, request_handle))
++        {
++            p_dbus_message_unref(reply);
++            return STATUS_INTERNAL_ERROR;
++        }
++    }
++    p_dbus_message_unref(reply);
+ 
+     while (!ctx->response_received)
+     {
+@@ -1301,11 +1328,44 @@ NTSTATUS CDECL portal_save_file(void *args)
+ NTSTATUS CDECL portal_is_available(void *args)
+ {
+     struct portal_is_available_params *params = args;
+-    struct portal_context ctx = {0};
++    const char *iface = "org.freedesktop.portal.FileChooser", *prop = "version";
++    struct portal_context ctx;
++    DBusMessage *msg, *reply;
++    DBusMessageIter iter, variant;
++    DBusError error;
+     NTSTATUS status;
+ 
+-    if (params) params->reserved = 0;
+-    status = portal_init(&ctx);
++    params->version = 0;
++    if ((status = portal_init(&ctx))) return status;
++
++    if (!(msg = p_dbus_message_new_method_call("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
++                                               "org.freedesktop.DBus.Properties", "Get")))
++    {
++        portal_cleanup(&ctx);
++        return STATUS_NO_MEMORY;
++    }
++    p_dbus_message_iter_init_append(msg, &iter);
++    p_dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &iface);
++    p_dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &prop);
++    p_dbus_error_init(&error);
++    reply = p_dbus_connection_send_with_reply_and_block(ctx.connection, msg, 10000, &error);
++    p_dbus_message_unref(msg);
++    if (!reply)
++    {
++        WARN("no file chooser portal: %s\n", error.message);
++        p_dbus_error_free(&error);
++        portal_cleanup(&ctx);
++        return STATUS_NOT_SUPPORTED;
++    }
++
++    if (p_dbus_message_iter_init(reply, &iter) && p_dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_VARIANT)
++    {
++        p_dbus_message_iter_recurse(&iter, &variant);
++        if (p_dbus_message_iter_get_arg_type(&variant) == DBUS_TYPE_UINT32)
++            p_dbus_message_iter_get_basic(&variant, &params->version);
++    }
++    p_dbus_message_unref(reply);
+     portal_cleanup(&ctx);
+-    return status;
++    TRACE("file chooser version %u\n", params->version);
++    return params->version ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
+ }
+diff --git a/dlls/comdlg32/unixlib.h b/dlls/comdlg32/unixlib.h
+--- a/dlls/comdlg32/unixlib.h
++++ b/dlls/comdlg32/unixlib.h
+@@ -67,7 +67,7 @@ struct portal_file_params
+ 
+ struct portal_is_available_params
+ {
+-    UINT reserved;
++    UINT version;
+ };
+ 
+ enum comdlg32_unix_funcs
+@@ -87,7 +87,7 @@ enum portal_policy
+ };
+ 
+ extern enum portal_policy portal_get_policy(void);
+-extern BOOL portal_available(void);
++extern UINT portal_version(void);
+ extern NTSTATUS portal_call(enum comdlg32_unix_funcs code, struct portal_file_params *params, HWND owner);
+ extern void portal_utf8(char *dst, size_t size, const WCHAR *str);
+ extern void portal_unix_path(char *dst, size_t size, const WCHAR *path);
