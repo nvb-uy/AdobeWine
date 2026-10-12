@@ -1,0 +1,211 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] shell32: Pick folders with the file dialog when the file dialog portal is enabled.
+
+SHBrowseForFolder asks the callback for its initial selection and OK text, then shows an IFileOpenDialog folder picker, which goes through the desktop portal. Without a portal the file dialog closes itself before showing, and the classic dialog is used.
+---
+diff --git a/dlls/shell32/brsfolder.c b/dlls/shell32/brsfolder.c
+--- a/dlls/shell32/brsfolder.c
++++ b/dlls/shell32/brsfolder.c
+@@ -32,6 +32,7 @@
+ #include "shellapi.h"
+ #include "shresdef.h"
+ #include "shellfolder.h"
++#include "wine/appdefaults.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(shell);
+ 
+@@ -1150,6 +1151,181 @@ static INT_PTR CALLBACK BrsFolderDlgProc( HWND hWnd, UINT msg, WPARAM wParam,
+     return FALSE;
+ }
+ 
++struct portal_browse
++{
++    IFileDialogEvents IFileDialogEvents_iface;
++    LPITEMIDLIST selection;
++    WCHAR ok_text[MAX_PATH];
++};
++
++static HRESULT WINAPI portal_events_QueryInterface(IFileDialogEvents *iface, REFIID riid, void **out)
++{
++    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IFileDialogEvents))
++    {
++        *out = iface;
++        return S_OK;
++    }
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG WINAPI portal_events_AddRef(IFileDialogEvents *iface)
++{
++    return 2;
++}
++
++static ULONG WINAPI portal_events_Release(IFileDialogEvents *iface)
++{
++    return 1;
++}
++
++static HRESULT WINAPI portal_events_OnFileOk(IFileDialogEvents *iface, IFileDialog *dialog)
++{
++    return S_OK;
++}
++
++static HRESULT WINAPI portal_events_OnFolderChanging(IFileDialogEvents *iface, IFileDialog *dialog, IShellItem *folder)
++{
++    TRACE("no portal, using the classic dialog\n");
++    IFileDialog_Close(dialog, E_ABORT);
++    return S_OK;
++}
++
++static HRESULT WINAPI portal_events_OnFolderChange(IFileDialogEvents *iface, IFileDialog *dialog)
++{
++    return S_OK;
++}
++
++static HRESULT WINAPI portal_events_OnSelectionChange(IFileDialogEvents *iface, IFileDialog *dialog)
++{
++    return S_OK;
++}
++
++static HRESULT WINAPI portal_events_OnShareViolation(IFileDialogEvents *iface, IFileDialog *dialog,
++                                                     IShellItem *item, FDE_SHAREVIOLATION_RESPONSE *response)
++{
++    return S_OK;
++}
++
++static HRESULT WINAPI portal_events_OnTypeChange(IFileDialogEvents *iface, IFileDialog *dialog)
++{
++    return S_OK;
++}
++
++static HRESULT WINAPI portal_events_OnOverwrite(IFileDialogEvents *iface, IFileDialog *dialog,
++                                                IShellItem *item, FDE_OVERWRITE_RESPONSE *response)
++{
++    return S_OK;
++}
++
++static const IFileDialogEventsVtbl portal_events_vtbl =
++{
++    portal_events_QueryInterface,
++    portal_events_AddRef,
++    portal_events_Release,
++    portal_events_OnFileOk,
++    portal_events_OnFolderChanging,
++    portal_events_OnFolderChange,
++    portal_events_OnSelectionChange,
++    portal_events_OnShareViolation,
++    portal_events_OnTypeChange,
++    portal_events_OnOverwrite,
++};
++
++static LRESULT CALLBACK portal_browse_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
++{
++    struct portal_browse *browse = (struct portal_browse *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
++
++    switch (msg)
++    {
++    case BFFM_SETSELECTIONA:
++    case BFFM_SETSELECTIONW:
++        ILFree(browse->selection);
++        if (!wparam) browse->selection = ILClone((LPCITEMIDLIST)lparam);
++        else if (msg == BFFM_SETSELECTIONW) browse->selection = ILCreateFromPathW((const WCHAR *)lparam);
++        else browse->selection = ILCreateFromPathA((const char *)lparam);
++        return TRUE;
++    case BFFM_SETOKTEXT:
++        lstrcpynW(browse->ok_text, (const WCHAR *)lparam, ARRAY_SIZE(browse->ok_text));
++        return TRUE;
++    case BFFM_SETSTATUSTEXTA:
++    case BFFM_SETSTATUSTEXTW:
++    case BFFM_ENABLEOK:
++    case BFFM_SETEXPANDED:
++        return TRUE;
++    }
++    return DefWindowProcW(hwnd, msg, wparam, lparam);
++}
++
++static BOOL portal_enabled(void)
++{
++    const char *env = getenv("WINE_FORCE_PORTAL");
++    WCHAR value[32];
++
++    if (env && *env == '1') return TRUE;
++    if (env && *env == '0') return FALSE;
++    return wine_get_appdefaults_reg_sz(L"X11 Driver", L"FileDialogPortal", value, sizeof(value)) &&
++           (!wcsicmp(value, L"always") || !wcsicmp(value, L"auto"));
++}
++
++static BOOL browse_with_file_dialog(BROWSEINFOW *bi, LPITEMIDLIST *ret)
++{
++    struct portal_browse browse = {{&portal_events_vtbl}};
++    FILEOPENDIALOGOPTIONS options;
++    IFileOpenDialog *dialog;
++    IShellItem *item;
++    WCHAR *name;
++    DWORD cookie;
++    HWND hwnd;
++    HRESULT hr;
++
++    *ret = NULL;
++    if (!portal_enabled() || (bi->ulFlags & (BIF_BROWSEFORCOMPUTER | BIF_BROWSEFORPRINTER | BIF_BROWSEINCLUDEFILES)))
++        return FALSE;
++    if (FAILED(CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileOpenDialog,
++                                (void **)&dialog)))
++        return FALSE;
++
++    if (bi->lpfn && (hwnd = CreateWindowExW(0, L"Message", NULL, 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, NULL, NULL)))
++    {
++        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)&browse);
++        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)portal_browse_proc);
++        bi->lpfn(hwnd, BFFM_INITIALIZED, 0, bi->lParam);
++        DestroyWindow(hwnd);
++    }
++
++    IFileOpenDialog_GetOptions(dialog, &options);
++    IFileOpenDialog_SetOptions(dialog, options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
++    if ((browse.selection || bi->pidlRoot) &&
++        SUCCEEDED(SHCreateItemFromIDList(browse.selection ? browse.selection : bi->pidlRoot, &IID_IShellItem,
++                                         (void **)&item)))
++    {
++        IFileOpenDialog_SetFolder(dialog, item);
++        IShellItem_Release(item);
++    }
++    if (browse.ok_text[0]) IFileOpenDialog_SetOkButtonLabel(dialog, browse.ok_text);
++    if (bi->lpszTitle) IFileOpenDialog_SetTitle(dialog, bi->lpszTitle);
++    IFileOpenDialog_Advise(dialog, &browse.IFileDialogEvents_iface, &cookie);
++
++    hr = IFileOpenDialog_Show(dialog, bi->hwndOwner);
++    TRACE("Show returned %#lx\n", hr);
++    if (hr == S_OK && SUCCEEDED(IFileOpenDialog_GetResult(dialog, &item)))
++    {
++        SHGetIDListFromObject((IUnknown *)item, ret);
++        if (bi->pszDisplayName && SUCCEEDED(IShellItem_GetDisplayName(item, SIGDN_NORMALDISPLAY, &name)))
++        {
++            lstrcpynW(bi->pszDisplayName, name, MAX_PATH);
++            CoTaskMemFree(name);
++        }
++        IShellItem_Release(item);
++    }
++
++    IFileOpenDialog_Unadvise(dialog, cookie);
++    IFileOpenDialog_Release(dialog);
++    ILFree(browse.selection);
++    return hr == S_OK || hr == HRESULT_FROM_WIN32(ERROR_CANCELLED);
++}
++
+ /*************************************************************************
+  * SHBrowseForFolderA [SHELL32.@]
+  * SHBrowseForFolder  [SHELL32.@]
+@@ -1222,6 +1398,12 @@ LPITEMIDLIST WINAPI SHBrowseForFolderW (LPBROWSEINFOW lpbi)
+ 
+     hr = OleInitialize(NULL);
+ 
++    if (browse_with_file_dialog(lpbi, &info.pidlRet))
++    {
++        if (SUCCEEDED(hr)) OleUninitialize();
++        return info.pidlRet;
++    }
++
+     if (lpbi->ulFlags & BIF_NEWDIALOGSTYLE)
+     {
+         templateName = L"SHNEWBRSFORFOLDER_MSGBOX";

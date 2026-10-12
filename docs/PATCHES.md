@@ -92,6 +92,7 @@ to WineHQ; help with that is very welcome.
 | 0080 | comdlg32 | Portal save names get the extension of the chosen type, OnOverwrite is sent, GetFileName has no folder | nvb-uy |
 | 0081 | comdlg32 | The portal comes back when OnFileOk refuses the chosen file | nvb-uy |
 | 0082 | comdlg32 | The OK button label goes to the portal as its accept label | nvb-uy |
+| 0083 | shell32 | SHBrowseForFolder uses the IFileDialog folder picker, and so the portal, when the file dialog portal is enabled | nvb-uy |
 | 0085 | wineboot | No "configuration is being updated" window while the prefix is updated | nvb-uy |
 | 0086 | user32 | Windows without an icon get the executable's icon instead of the Wine logo | nvb-uy |
 | 0087 | win32u | `Decorated=owned` in the X11 Driver key lets the window manager decorate owned windows (dialogs) only | nvb-uy |
