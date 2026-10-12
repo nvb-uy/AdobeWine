@@ -12,6 +12,7 @@ if [ "${1:-}" = --remove ]; then
 fi
 mkdir -p "$APPS" "$ICONS"
 PF="$WINEPREFIX/drive_c/Program Files/Adobe"
+EXEC="\"$(printf '%s' "$ADOBEWINE_SRC/bin/adobewine" | sed -e 's/\\/\\\\\\\\/g' -e 's/["`$]/\\\\&/g' -e 's/%/%%/g')\""
 latest() {  # newest installed release folder of an app, e.g. "Adobe Photoshop 2025"
   local d; d="$(ls -d "$PF/$1 20"[0-9][0-9] 2>/dev/null | sort -V | tail -1)"
   basename "${d:-$1 2026}"
@@ -42,7 +43,7 @@ entry() {  # entry <name> <title> <categories> <mime> <wmclass> <exe>
 Type=Application
 Name=$2 (AdobeWine)
 Comment=$2 through the AdobeWine Wine build
-Exec=$ADOBEWINE_SRC/bin/adobewine $1 %F
+Exec=$EXEC $1 %F
 Icon=adobewine-$1
 Terminal=false
 Categories=$3
@@ -62,7 +63,7 @@ cat > "$APPS/adobewine-off.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Stop all Adobe apps (AdobeWine)
-Exec=$ADOBEWINE_SRC/bin/adobewine off
+Exec=$EXEC off
 Icon=process-stop
 Terminal=false
 Categories=Utility;
