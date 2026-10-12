@@ -65,11 +65,8 @@ done
 # through its single-instance check and nothing would open. Give it 10 s to finish exiting; if it
 # is still there without a window, end only that exe.
 name="${exe##*\\}"
-if [ "$cmd" != run ] && wine tasklist 2>/dev/null | grep -qiF "$name"; then
-  for _ in $(seq 10); do wine tasklist 2>/dev/null | grep -qiF "$name" || break; sleep 1; done
-  if wine tasklist 2>/dev/null | grep -qiF "$name"; then
-    # Does it still have a window? (python-xlib; without it, only warn)
-    has_win=$(python3 -c "
+windows() {
+  python3 -c "
 import sys
 from Xlib import display
 d = display.Display()
@@ -80,12 +77,28 @@ for w in d.screen().root.query_tree().children:
         n += bool(c and c[1].lower() == sys.argv[1].lower() and w.get_attributes().map_state == 2)
     except Exception:
         pass
-print(n)" "$name" 2>/dev/null)
-    if [ "$has_win" = 0 ]; then
-      wine taskkill /f /im "$name" >/dev/null 2>&1
-      echo "A previous ${name%.exe} was stuck closing (no window); ended it."
-    elif [ -z "$has_win" ]; then
-      echo "${name%.exe} is still running. If nothing opens, it may be stuck closing: adobewine off"
+print(n)" "$name" 2>/dev/null
+}
+if [ "$cmd" != run ]; then
+  has_win="$(windows)"
+  if [ -n "$has_win" ] && [ "$has_win" != 0 ]; then
+    wine "$exe" "${args[@]}" >/dev/null 2>&1
+    exit $?
+  fi
+  if wine tasklist 2>/dev/null | grep -qiF "$name"; then
+    running=1
+    for _ in $(seq 10); do
+      sleep 1
+      wine tasklist 2>/dev/null | grep -qiF "$name" || { running=; break; }
+    done
+    if [ -n "$running" ]; then
+      has_win="$(windows)"
+      if [ "$has_win" = 0 ]; then
+        wine taskkill /f /im "$name" >/dev/null 2>&1
+        echo "A previous ${name%.exe} was stuck closing (no window); ended it."
+      elif [ -z "$has_win" ]; then
+        echo "${name%.exe} is still running. If nothing opens, it may be stuck closing: adobewine off"
+      fi
     fi
   fi
 fi
