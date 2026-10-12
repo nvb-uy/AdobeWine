@@ -89,3 +89,4 @@ to WineHQ; help with that is very welcome.
 | 0090 | gdiplus | Region visibility tests build the region only inside the tested rectangle (non-rectangular clips, 917 tests 1982 to 30 ms) | nvb-uy |
 | 0091 | gdiplus | Antialiased fills add up coverage a pixel at a time and scale alpha with shifts instead of dividing every sample run | nvb-uy |
 | 0092 | gdiplus | Antialiased fills of axis-aligned rectangles take their coverage from the covered sample rows and columns; pixel-aligned ones skip sampling and the alpha conversion | nvb-uy |
+| 0093 | win32u | 32-bpp alpha blends copy opaque source pixels and skip fully transparent ones | nvb-uy |

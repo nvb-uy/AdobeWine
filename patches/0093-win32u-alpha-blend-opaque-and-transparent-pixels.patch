@@ -1,0 +1,22 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] win32u: Copy opaque and skip transparent pixels in 32-bpp alpha blends.
+
+With per-pixel alpha and a constant alpha of 255, an opaque source pixel blends to itself and a zero pixel leaves the destination as it is, so neither needs the per-channel divisions.
+---
+diff --git a/dlls/win32u/dibdrv/primitives.c b/dlls/win32u/dibdrv/primitives.c
+--- a/dlls/win32u/dibdrv/primitives.c
++++ b/dlls/win32u/dibdrv/primitives.c
+@@ -4697,7 +4697,12 @@ static void blend_rects_8888(const dib_info *dst, int num, const RECT *rc,
+             if (blend.SourceConstantAlpha == 255)
+                 for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
+                     for (x = 0; x < rc->right - rc->left; x++)
+-                        dst_ptr[x] = blend_argb( dst_ptr[x], src_ptr[x] );
++                    {
++                        if (src_ptr[x] >= 0xff000000)
++                            dst_ptr[x] = src_ptr[x];
++                        else if (src_ptr[x])
++                            dst_ptr[x] = blend_argb( dst_ptr[x], src_ptr[x] );
++                    }
+             else
+                 for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
+                     for (x = 0; x < rc->right - rc->left; x++)
