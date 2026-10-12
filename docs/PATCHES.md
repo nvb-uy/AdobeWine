@@ -85,3 +85,4 @@ to WineHQ; help with that is very welcome.
 | 0086 | user32 | Windows without an icon get the executable's icon instead of the Wine logo | nvb-uy |
 | 0087 | win32u | `Decorated=owned` in the X11 Driver key lets the window manager decorate owned windows (dialogs) only | nvb-uy |
 | 0088 | explorer | Systray icon windows are named after their tooltip, so XEmbed hosts like xembedsniproxy can show a name | nvb-uy |
+| 0089 | gdiplus | Rectangle path regions are built from their corners instead of a sorted edge list (Photoshop Home visibility tests, 113 to 1 ms a frame) | nvb-uy |

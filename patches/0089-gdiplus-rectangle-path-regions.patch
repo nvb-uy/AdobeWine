@@ -1,0 +1,137 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] gdiplus: Build rectangle path regions without an edge list.
+
+Photoshop's Home screen clips to rectangle paths and tests visibility hundreds of times per frame, and every test turned the clip into an edge list per scanline and sorted it. An axis-aligned rectangle path gives the same region straight from its corners.
+---
+diff --git a/dlls/gdiplus/gdiplus_private.h b/dlls/gdiplus/gdiplus_private.h
+--- a/dlls/gdiplus/gdiplus_private.h
++++ b/dlls/gdiplus/gdiplus_private.h
+@@ -164,6 +164,7 @@ typedef struct region_element region_element;
+ extern void delete_element(region_element *element);
+ 
+ extern GpStatus get_region_hrgn(struct region_element *element, const RECT *bounds, HRGN *hrgn);
++extern BOOL path_is_axis_aligned_rect(const GpPath *path, GpPointF *top_left, GpPointF *bottom_right);
+ 
+ extern GpStatus get_hatch_data(GpHatchStyle hatchstyle, const unsigned char **result);
+ 
+diff --git a/dlls/gdiplus/region.c b/dlls/gdiplus/region.c
+--- a/dlls/gdiplus/region.c
++++ b/dlls/gdiplus/region.c
+@@ -1052,6 +1052,81 @@ static inline void rect_round_from_gp_rect_f(RECT *rc, const GpRectF *rect)
+     rc->bottom = rgn_round(rect->Y + rect->Height);
+ }
+ 
++static inline BOOL points_equal(const GpPointF *a, const GpPointF *b)
++{
++    return a->X == b->X && a->Y == b->Y;
++}
++
++BOOL path_is_axis_aligned_rect(const GpPath *path, GpPointF *top_left, GpPointF *bottom_right)
++{
++    const GpPointF *points = path->pathdata.Points;
++    const BYTE *types = path->pathdata.Types;
++    INT i, count = path->pathdata.Count, n = 0;
++    BOOL closed = FALSE;
++    GpPointF corner[4];
++
++    if (count < 4 || (types[0] & PathPointTypePathTypeMask) != PathPointTypeStart)
++        return FALSE;
++
++    for (i = 0; i < count; i++)
++    {
++        if (i && (types[i] & PathPointTypePathTypeMask) != PathPointTypeLine)
++            return FALSE;
++        if (i < count - 1 && (types[i] & PathPointTypeCloseSubpath))
++            return FALSE;
++        if (n && points_equal(&points[i], closed ? &corner[0] : &corner[n - 1]))
++            continue;
++        if (n == 4)
++        {
++            if (closed || !points_equal(&points[i], &corner[0]))
++                return FALSE;
++            closed = TRUE;
++            continue;
++        }
++        corner[n++] = points[i];
++    }
++
++    if (n != 4)
++        return FALSE;
++
++    if (!(corner[0].Y == corner[1].Y && corner[1].X == corner[2].X &&
++          corner[2].Y == corner[3].Y && corner[3].X == corner[0].X) &&
++        !(corner[0].X == corner[1].X && corner[1].Y == corner[2].Y &&
++          corner[2].X == corner[3].X && corner[3].Y == corner[0].Y))
++        return FALSE;
++
++    top_left->X = min(corner[0].X, corner[2].X);
++    top_left->Y = min(corner[0].Y, corner[2].Y);
++    bottom_right->X = max(corner[0].X, corner[2].X);
++    bottom_right->Y = max(corner[0].Y, corner[2].Y);
++    return TRUE;
++}
++
++static inline INT clamp_rgn_x(INT x, const RECT *bounds)
++{
++    if (x < bounds->left)
++        return bounds->left;
++    if (x > bounds->right)
++        return bounds->right;
++    return x;
++}
++
++static BOOL rect_path_to_rgn_rect(GpPath *path, const RECT *bounds, RECT *rc)
++{
++    GpPointF top_left, bottom_right;
++
++    if (!path_is_axis_aligned_rect(path, &top_left, &bottom_right))
++        return FALSE;
++
++    rc->left = clamp_rgn_x(rgn_round(top_left.X), bounds);
++    rc->right = clamp_rgn_x(rgn_round(bottom_right.X), bounds);
++    rc->top = max(rgn_round(top_left.Y), bounds->top);
++    rc->bottom = min(rgn_round(bottom_right.Y), bounds->bottom);
++    if (rc->left >= rc->right || rc->top >= rc->bottom)
++        SetRectEmpty(rc);
++    return TRUE;
++}
++
+ static GpStatus line_to_edge_list(GpPointF p1, GpPointF p2, const RECT *bounds, struct edge_list *edges)
+ {
+     GpStatus stat = Ok;
+@@ -1206,6 +1281,7 @@ static GpStatus get_path_hrgn(GpPath *path, const RECT *bounds, HRGN *hrgn)
+     GpPath *flat_path = NULL;
+     struct edge_list edge_list = { 0 };
+     RGNDATA *rgndata = NULL;
++    RECT rc;
+ 
+     if (!path->pathdata.Count)
+     {
+@@ -1213,6 +1289,12 @@ static GpStatus get_path_hrgn(GpPath *path, const RECT *bounds, HRGN *hrgn)
+         return *hrgn ? Ok : OutOfMemory;
+     }
+ 
++    if (rect_path_to_rgn_rect(path, bounds, &rc))
++    {
++        *hrgn = CreateRectRgnIndirect(&rc);
++        return *hrgn ? Ok : OutOfMemory;
++    }
++
+     if (stat == Ok)
+         stat = GdipClonePath(path, &flat_path);
+ 
+@@ -2479,6 +2561,14 @@ GpStatus region_element_to_spans(const struct region_element *element, const REC
+         {
+             GpPath *path = element->elementdata.path;
+             struct edge_list edge_list = { 0 };
++            RECT rc;
++
++            if (rect_path_to_rgn_rect(path, bounds, &rc))
++            {
++                if (!IsRectEmpty(&rc))
++                    stat = rect_to_spans(&rc, spans);
++                break;
++            }
+ 
+             stat = GdipFlattenPath(path, NULL, FlatnessDefault);
+ 
