@@ -1,0 +1,149 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] d2d1: Compile the shape and MSAA shaders once per process.
+
+Every WIC and DC render target creates its own D2D device, and each device ran D3DCompile on all shape shaders, about 40 ms per target. Photoshop's Home screen creates a WIC target for every text element.
+---
+diff --git a/dlls/d2d1/device.c b/dlls/d2d1/device.c
+--- a/dlls/d2d1/device.c
++++ b/dlls/d2d1/device.c
+@@ -148,32 +148,41 @@ static const char msaa_load_ps_code[] =
+     "    return t.Load(int3(p.xy, 0));\n"
+     "}\n";
+ 
++static ID3D10Blob *msaa_vs_blob, *msaa_ps_blob;
++
++static BOOL WINAPI d2d_compile_msaa_shaders(INIT_ONCE *once, void *param, void **context)
++{
++    if (FAILED(D3DCompile(msaa_load_vs_code, sizeof(msaa_load_vs_code) - 1, "msaa_vs", NULL, NULL,
++            "main", "vs_4_0", 0, 0, &msaa_vs_blob, NULL)))
++        return FALSE;
++    if (FAILED(D3DCompile(msaa_load_ps_code, sizeof(msaa_load_ps_code) - 1, "msaa_ps", NULL, NULL,
++            "main", "ps_4_0", 0, 0, &msaa_ps_blob, NULL)))
++    {
++        ID3D10Blob_Release(msaa_vs_blob);
++        msaa_vs_blob = NULL;
++        return FALSE;
++    }
++    return TRUE;
++}
++
+ static HRESULT d2d_device_context_init_msaa_shaders(struct d2d_device_context *context)
+ {
+-    ID3D10Blob *vs, *ps;
++    static INIT_ONCE once = INIT_ONCE_STATIC_INIT;
+     HRESULT hr;
+ 
+     if (context->msaa_vs)
+         return S_OK;
+-    if (FAILED(hr = D3DCompile(msaa_load_vs_code, sizeof(msaa_load_vs_code) - 1, "msaa_vs", NULL, NULL,
+-            "main", "vs_4_0", 0, 0, &vs, NULL)))
+-        return hr;
+-    if (FAILED(hr = D3DCompile(msaa_load_ps_code, sizeof(msaa_load_ps_code) - 1, "msaa_ps", NULL, NULL,
+-            "main", "ps_4_0", 0, 0, &ps, NULL)))
+-    {
+-        ID3D10Blob_Release(vs);
+-        return hr;
+-    }
+-    hr = ID3D11Device1_CreateVertexShader(context->d3d_device, ID3D10Blob_GetBufferPointer(vs),
+-            ID3D10Blob_GetBufferSize(vs), NULL, &context->msaa_vs);
++    if (!InitOnceExecuteOnce(&once, d2d_compile_msaa_shaders, NULL, NULL))
++        return E_FAIL;
++    hr = ID3D11Device1_CreateVertexShader(context->d3d_device, ID3D10Blob_GetBufferPointer(msaa_vs_blob),
++            ID3D10Blob_GetBufferSize(msaa_vs_blob), NULL, &context->msaa_vs);
+     if (SUCCEEDED(hr) && FAILED(hr = ID3D11Device1_CreatePixelShader(context->d3d_device,
+-            ID3D10Blob_GetBufferPointer(ps), ID3D10Blob_GetBufferSize(ps), NULL, &context->msaa_ps)))
++            ID3D10Blob_GetBufferPointer(msaa_ps_blob), ID3D10Blob_GetBufferSize(msaa_ps_blob),
++            NULL, &context->msaa_ps)))
+     {
+         ID3D11VertexShader_Release(context->msaa_vs);
+         context->msaa_vs = NULL;
+     }
+-    ID3D10Blob_Release(vs);
+-    ID3D10Blob_Release(ps);
+     return hr;
+ }
+ 
+@@ -5294,40 +5303,65 @@ struct d2d_device *unsafe_impl_from_ID2D1Device(ID2D1Device1 *iface)
+     return CONTAINING_RECORD(iface, struct d2d_device, ID2D1Device6_iface);
+ }
+ 
+-HRESULT d2d_device_init(struct d2d_device *device, ID2D1Factory1 *factory, IDXGIDevice *dxgi_device,
+-    bool allow_get_dxgi_device)
++static ID3D10Blob *shape_vs_blobs[ARRAY_SIZE(shape_info)], *shape_ps_blob;
++static INIT_ONCE shape_shaders_once = INIT_ONCE_STATIC_INIT;
++
++static BOOL WINAPI d2d_compile_shape_shaders(INIT_ONCE *once, void *param, void **context)
+ {
++    unsigned int i;
+     HRESULT hr;
+-    ID3D10Blob *compiled;
+-
+-    device->ID2D1Device6_iface.lpVtbl = &d2d_device_vtbl;
+-    device->refcount = 1;
+-    device->factory = factory;
+-    ID2D1Factory1_AddRef(device->factory);
+-    device->dxgi_device = dxgi_device;
+-    IDXGIDevice_AddRef(device->dxgi_device);
+-    device->allow_get_dxgi_device = allow_get_dxgi_device;
+ 
+-    for (unsigned int i = 0; i < ARRAY_SIZE(shape_info); ++i)
++    for (i = 0; i < ARRAY_SIZE(shape_info); ++i)
+     {
+         const struct shape_info *si = &shape_info[i];
+ 
+         if (FAILED(hr = D3DCompile(si->vs_code, si->vs_code_size, si->name, NULL, NULL,
+-                "main", "vs_4_0", 0, 0, &compiled, NULL)))
++                "main", "vs_4_0", 0, 0, &shape_vs_blobs[i], NULL)))
+         {
+             WARN("Failed to compile shader for shape type %#x, hr %#lx.\n", si->shape_type, hr);
+-            return hr;
++            goto fail;
+         }
+-        device->precompiled_shape_vs[i] = compiled;
+     }
+ 
+     if (FAILED(hr = D3DCompile(shape_ps_code, sizeof(shape_ps_code) - 1, "ps", NULL, NULL,
+-            "main", "ps_4_0", 0, 0, &compiled, NULL)))
++            "main", "ps_4_0", 0, 0, &shape_ps_blob, NULL)))
+     {
+         WARN("Failed to compile the pixel shader, hr %#lx.\n", hr);
+-        return hr;
++        goto fail;
++    }
++
++    return TRUE;
++
++fail:
++    while (i--)
++    {
++        ID3D10Blob_Release(shape_vs_blobs[i]);
++        shape_vs_blobs[i] = NULL;
++    }
++    return FALSE;
++}
++
++HRESULT d2d_device_init(struct d2d_device *device, ID2D1Factory1 *factory, IDXGIDevice *dxgi_device,
++    bool allow_get_dxgi_device)
++{
++    device->ID2D1Device6_iface.lpVtbl = &d2d_device_vtbl;
++    device->refcount = 1;
++    device->factory = factory;
++    ID2D1Factory1_AddRef(device->factory);
++    device->dxgi_device = dxgi_device;
++    IDXGIDevice_AddRef(device->dxgi_device);
++    device->allow_get_dxgi_device = allow_get_dxgi_device;
++
++    if (!InitOnceExecuteOnce(&shape_shaders_once, d2d_compile_shape_shaders, NULL, NULL))
++        return E_FAIL;
++
++    for (unsigned int i = 0; i < ARRAY_SIZE(shape_info); ++i)
++    {
++        device->precompiled_shape_vs[i] = shape_vs_blobs[i];
++        ID3D10Blob_AddRef(shape_vs_blobs[i]);
+     }
+-    device->precompiled_shape_ps = compiled;
++    device->precompiled_shape_ps = shape_ps_blob;
++    ID3D10Blob_AddRef(shape_ps_blob);
+ 
+     return S_OK;
+ }
