@@ -58,9 +58,33 @@ case "$cmd" in
   *) echo "unknown command: $cmd (try adobewine --help)" >&2; exit 1 ;;
 esac
 # Linux paths (from a file manager or a .desktop %F) become Windows paths.
+users="$WINEPREFIX/drive_c/users"
+u="${USER:-}"
+if [ -z "$u" ] || [ ! -d "$users/$u" ]; then
+  u=""
+  for d in "$users"/*/; do
+    d="${d%/}"; [ -d "$d" ] && [ "${d##*/}" != Public ] && { u="${d##*/}"; break; }
+  done
+fi
+winpath() {
+  local p l t best="" dir=""
+  p="$(realpath "$1")"
+  if [ -n "$u" ]; then
+    for l in "$users/$u"/{Desktop,Documents,Downloads,Music,Pictures,Videos}; do
+      [ -L "$l" ] || continue
+      t="$(readlink -f "$l")"
+      [ -n "$t" ] && [ "$t" != / ] && [ "$t" != "$HOME" ] || continue
+      case "$p" in
+        "$t"|"$t"/*) [ ${#t} -gt ${#best} ] && { best="$t"; dir="${l##*/}"; } ;;
+      esac
+    done
+  fi
+  if [ -n "$best" ]; then p="C:/users/$u/$dir${p#"$best"}"; else p="Z:$p"; fi
+  echo "${p//\//\\}"
+}
 args=()
 for a in "$@"; do
-  if [ -e "$a" ]; then args+=("Z:$(realpath "$a" | sed 's|/|\\|g')"); else args+=("$a"); fi
+  if [ -e "$a" ]; then args+=("$(winpath "$a")"); else args+=("$a"); fi
 done
 # Creative Cloud (Chromium): with GPU vsync a page change can stay off screen until a repaint.
 [ "$cmd" = cc ] && args=(--disable-gpu-vsync "${args[@]}")
