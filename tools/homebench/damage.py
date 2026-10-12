@@ -38,7 +38,7 @@ while time.time() < t_end:
 ts = sorted(stamps)
 frames = []
 for t in ts:
-    if frames and t - frames[-1][-1] <= 25: frames[-1].append(t)
+    if frames and t - frames[-1][-1] <= 3: frames[-1].append(t)
     else: frames.append([t])
 starts = [f[0] for f in frames]
 posts = []
@@ -55,8 +55,8 @@ if len(starts) > 1:
 else:
     print("frames<2")
 if posts and starts:
-    delays = sorted(next((s - p for s in starts if s >= p), None) for p in posts)
-    delays = [x for x in delays if x is not None]
+    delays = (next((s - p for s in starts if s >= p), None) for p in posts)
+    delays = sorted(x for x in delays if x is not None)
     if delays:
         print(f"posts={len(posts)} post_to_frame_p50={delays[len(delays)//2]:.0f}ms "
               f"p95={delays[int(len(delays)*.95)]:.0f}ms max={delays[-1]:.0f}ms")
