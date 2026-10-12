@@ -65,6 +65,17 @@ done
 # through its single-instance check and nothing would open. Give it 10 s to finish exiting; if it
 # is still there without a window, end only that exe.
 name="${exe##*\\}"
+i="adobe-$cmd"
+case "$cmd" in
+  photoshop)    t="Adobe Photoshop" ;;
+  illustrator)  t="Adobe Illustrator" ;;
+  premiere)     t="Adobe Premiere Pro" ;;
+  audition)     t="Adobe Audition" ;;
+  encoder)      t="Adobe Media Encoder" ;;
+  aftereffects) t="Adobe After Effects" ;;
+  cc)           t="Adobe Creative Cloud" ;;
+  *)            t="${name%.exe}"; i=dialog-warning ;;
+esac
 windows() {
   python3 -c "
 import sys
@@ -123,13 +134,12 @@ rc=$?
 # nothing (REPORTS=off), as set in ~/.config/adobewine/config.
 conf="${XDG_CONFIG_HOME:-$HOME/.config}/adobewine/config"
 REPORTS=ask; [ -f "$conf" ] && source "$conf"
-if [ "$REPORTS" != off ] && grep -qE 'Unhandled exception|Unhandled page fault|page fault on' "$log"; then
+if [ "$REPORTS" != off ] && [ "$rc" != 0 ] && grep -qE 'Unhandled exception|Unhandled page fault|page fault on' "$log"; then
   r=("$ADOBEWINE_SRC/scripts/report.sh" --app "$cmd" --log "$log" --exit-code "$rc" --duration $((SECONDS - start)))
   if [ "$REPORTS" = auto ]; then "${r[@]}" --auto >/dev/null 2>&1
-  elif [ -t 0 ]; then echo "$cmd crashed."; "${r[@]}"
+  elif [ -t 0 ]; then echo "$t quit unexpectedly."; "${r[@]}"
   else "${r[@]}" --save-only >/dev/null 2>&1
-       command -v notify-send >/dev/null && notify-send -i dialog-warning "AdobeWine: $cmd crashed" \
-         "A report was saved. Run 'adobewine report' in a terminal to review and send it."
+       command -v notify-send >/dev/null && notify-send -a "$t" -i "$i" "$t quit unexpectedly" "A problem report was saved."
   fi
 fi
 exit $rc
