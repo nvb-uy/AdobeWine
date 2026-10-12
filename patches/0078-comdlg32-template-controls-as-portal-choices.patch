@@ -1,0 +1,245 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] comdlg32: Pass file dialog template controls to the portal as choices.
+
+The visible and enabled check boxes, combo boxes and radio button groups of an application template, and the read-only check box, are offered as portal choices labelled with the static text in front of them, and what was picked is set back with the usual notifications before the file is accepted.
+---
+diff --git a/dlls/comdlg32/filedlg.c b/dlls/comdlg32/filedlg.c
+--- a/dlls/comdlg32/filedlg.c
++++ b/dlls/comdlg32/filedlg.c
+@@ -2064,6 +2064,172 @@ static void filedlg_browse_to_pidl(const FileOpenDlgInfos *info, LPITEMIDLIST pi
+         SendCustomDlgNotificationMessage(info->ShellInfos.hwndOwner, CDN_FOLDERCHANGE);
+ }
+ 
++enum portal_choice_kind
++{
++    CHOICE_NONE,
++    CHOICE_CHECK,
++    CHOICE_RADIO,
++    CHOICE_COMBO,
++};
++
++static enum portal_choice_kind filedlg_choice_kind(HWND ctrl)
++{
++    LONG style = GetWindowLongW(ctrl, GWL_STYLE);
++    WCHAR class[16];
++
++    if (!(style & WS_VISIBLE) || (style & WS_DISABLED)) return CHOICE_NONE;
++    GetClassNameW(ctrl, class, ARRAY_SIZE(class));
++    if (!wcsicmp(class, L"ComboBox")) return CHOICE_COMBO;
++    if (wcsicmp(class, L"Button")) return CHOICE_NONE;
++    switch (style & BS_TYPEMASK)
++    {
++    case BS_CHECKBOX:
++    case BS_AUTOCHECKBOX:
++    case BS_3STATE:
++    case BS_AUTO3STATE:
++        return CHOICE_CHECK;
++    case BS_RADIOBUTTON:
++    case BS_AUTORADIOBUTTON:
++        return CHOICE_RADIO;
++    }
++    return CHOICE_NONE;
++}
++
++static HWND filedlg_next_radio(HWND ctrl)
++{
++    HWND next = GetWindow(ctrl, GW_HWNDNEXT);
++
++    if (!next || filedlg_choice_kind(next) != CHOICE_RADIO || (GetWindowLongW(next, GWL_STYLE) & WS_GROUP))
++        return NULL;
++    return next;
++}
++
++static void filedlg_choice_label(HWND ctrl, WCHAR *text, UINT size)
++{
++    WCHAR class[16];
++
++    text[0] = 0;
++    while ((ctrl = GetWindow(ctrl, GW_HWNDPREV)) && !(GetWindowLongW(ctrl, GWL_STYLE) & WS_VISIBLE));
++    if (!ctrl) return;
++    GetClassNameW(ctrl, class, ARRAY_SIZE(class));
++    if (!wcsicmp(class, L"Static")) GetWindowTextW(ctrl, text, size);
++}
++
++static void filedlg_add_choice(struct portal_choices *choices, HWND *map, HWND ctrl, enum portal_choice_kind kind)
++{
++    WCHAR text[PORTAL_CHOICE_LABEL_MAX];
++    struct portal_choice *c;
++    int i, count, sel;
++    HWND item;
++
++    if (choices->count >= PORTAL_CHOICES_MAX)
++    {
++        WARN("too many controls, %p keeps its value\n", ctrl);
++        return;
++    }
++    c = &choices->choice[choices->count];
++    memset(c, 0, sizeof(*c));
++    snprintf(c->id, sizeof(c->id), "%u", choices->count);
++
++    if (kind == CHOICE_CHECK)
++    {
++        GetWindowTextW(ctrl, text, ARRAY_SIZE(text));
++        strcpy(c->initial, SendMessageW(ctrl, BM_GETCHECK, 0, 0) == BST_CHECKED ? "true" : "false");
++    }
++    else filedlg_choice_label(ctrl, text, ARRAY_SIZE(text));
++    portal_label(c->label, text, choices->count + 1);
++
++    if (kind == CHOICE_COMBO)
++    {
++        count = SendMessageW(ctrl, CB_GETCOUNT, 0, 0);
++        sel = SendMessageW(ctrl, CB_GETCURSEL, 0, 0);
++        if (count <= 0) return;
++        for (i = 0; i < count && i < PORTAL_CHOICE_ITEMS_MAX; i++)
++        {
++            int idx = (i == PORTAL_CHOICE_ITEMS_MAX - 1 && sel > i) ? sel : i;
++
++            text[0] = 0;
++            if (SendMessageW(ctrl, CB_GETLBTEXTLEN, idx, 0) < ARRAY_SIZE(text))
++                SendMessageW(ctrl, CB_GETLBTEXT, idx, (LPARAM)text);
++            snprintf(c->items[i].id, sizeof(c->items[i].id), "%d", idx);
++            portal_utf8(c->items[i].label, sizeof(c->items[i].label), text);
++            if (idx == sel) strcpy(c->initial, c->items[i].id);
++        }
++        c->item_count = i;
++        if (!c->initial[0]) strcpy(c->initial, c->items[0].id);
++    }
++    else if (kind == CHOICE_RADIO)
++    {
++        for (item = ctrl, i = 0; item && i < PORTAL_CHOICE_ITEMS_MAX; item = filedlg_next_radio(item), i++)
++        {
++            GetWindowTextW(item, text, ARRAY_SIZE(text));
++            snprintf(c->items[i].id, sizeof(c->items[i].id), "%d", i);
++            portal_label(c->items[i].label, text, i + 1);
++            if (SendMessageW(item, BM_GETCHECK, 0, 0) == BST_CHECKED) strcpy(c->initial, c->items[i].id);
++        }
++        c->item_count = i;
++        if (!c->initial[0]) strcpy(c->initial, c->items[0].id);
++    }
++    map[choices->count++] = ctrl;
++}
++
++static void filedlg_portal_choices(HWND hwnd, struct portal_choices *choices, HWND *map)
++{
++    FileOpenDlgInfos *info = get_filedlg_infoptr(hwnd);
++    HWND ctrl = info->DlgInfos.hwndCustomDlg ? GetWindow(info->DlgInfos.hwndCustomDlg, GW_CHILD) : NULL;
++    HWND readonly = GetDlgItem(hwnd, IDC_OPENREADONLY);
++    enum portal_choice_kind kind;
++
++    for (; ctrl; ctrl = GetWindow(ctrl, GW_HWNDNEXT))
++    {
++        if (!(kind = filedlg_choice_kind(ctrl))) continue;
++        filedlg_add_choice(choices, map, ctrl, kind);
++        if (kind == CHOICE_RADIO)
++            while (filedlg_next_radio(ctrl)) ctrl = filedlg_next_radio(ctrl);
++    }
++    if (readonly && filedlg_choice_kind(readonly) == CHOICE_CHECK)
++        filedlg_add_choice(choices, map, readonly, CHOICE_CHECK);
++}
++
++static void filedlg_apply_choices(const struct portal_choices *choices, HWND *map)
++{
++    UINT i, n;
++    HWND ctrl, item;
++
++    for (i = 0; i < choices->count; i++)
++    {
++        const struct portal_choice *c = &choices->choice[i];
++        HWND parent = GetParent(ctrl = map[i]);
++
++        if (!c->selected[0]) continue;
++        TRACE("control %p: %s\n", ctrl, debugstr_a(c->selected));
++        switch (filedlg_choice_kind(ctrl))
++        {
++        case CHOICE_CHECK:
++            n = !strcmp(c->selected, "true");
++            if ((SendMessageW(ctrl, BM_GETCHECK, 0, 0) == BST_CHECKED) == n) break;
++            SendMessageW(ctrl, BM_SETCHECK, n ? BST_CHECKED : BST_UNCHECKED, 0);
++            SendMessageW(parent, WM_COMMAND, MAKEWPARAM(GetDlgCtrlID(ctrl), BN_CLICKED), (LPARAM)ctrl);
++            break;
++        case CHOICE_COMBO:
++            n = atoi(c->selected);
++            if (SendMessageW(ctrl, CB_GETCURSEL, 0, 0) == n) break;
++            SendMessageW(ctrl, CB_SETCURSEL, n, 0);
++            SendMessageW(parent, WM_COMMAND, MAKEWPARAM(GetDlgCtrlID(ctrl), CBN_SELCHANGE), (LPARAM)ctrl);
++            break;
++        case CHOICE_RADIO:
++            for (n = atoi(c->selected), item = ctrl; item && n; item = filedlg_next_radio(item), n--);
++            if (!item || SendMessageW(item, BM_GETCHECK, 0, 0) == BST_CHECKED) break;
++            for (; ctrl; ctrl = filedlg_next_radio(ctrl))
++                SendMessageW(ctrl, BM_SETCHECK, ctrl == item ? BST_CHECKED : BST_UNCHECKED, 0);
++            SendMessageW(parent, WM_COMMAND, MAKEWPARAM(GetDlgCtrlID(item), BN_CLICKED), (LPARAM)item);
++            break;
++        default:
++            break;
++        }
++    }
++}
++
+ static WCHAR *filedlg_portal_names(const WCHAR *paths, UINT count, UINT dir_len)
+ {
+     const WCHAR *p;
+@@ -2096,6 +2262,7 @@ static void filedlg_portal_show(HWND hwnd)
+     FileOpenDlgInfos *info = get_filedlg_infoptr(hwnd);
+     struct portal_file_params *params;
+     WCHAR text[1024], path[MAX_PATH], *names, *slash;
++    HWND choice_map[PORTAL_CHOICES_MAX];
+     LPITEMIDLIST pidl;
+     int i, count, cur;
+     NTSTATUS status;
+@@ -2138,6 +2305,7 @@ static void filedlg_portal_show(HWND hwnd)
+     if (!save && (info->ofnInfos->Flags & OFN_ALLOWMULTISELECT))
+         params->flags |= PORTAL_OPEN_FLAG_MULTIPLE;
+     params->max_results = (params->flags & PORTAL_OPEN_FLAG_MULTIPLE) ? 1024 : 1;
++    filedlg_portal_choices(hwnd, &params->choices, choice_map);
+ 
+     status = portal_call(save ? unix_portal_save_file : unix_portal_open_file, params, info->ofnInfos->hwndOwner);
+     TRACE("portal returned %#lx, %u files\n", status, params->result_count);
+@@ -2158,6 +2326,7 @@ static void filedlg_portal_show(HWND hwnd)
+             SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_FILETYPE, CBN_SELENDOK),
+                          (LPARAM)info->DlgInfos.hwndFileTypeCB);
+         }
++        filedlg_apply_choices(&params->choices, choice_map);
+ 
+         lstrcpynW(path, params->result_buffer, ARRAY_SIZE(path));
+         if ((slash = wcsrchr(path, '\\'))) slash[1] = 0;
+diff --git a/dlls/comdlg32/portal.c b/dlls/comdlg32/portal.c
+--- a/dlls/comdlg32/portal.c
++++ b/dlls/comdlg32/portal.c
+@@ -180,3 +180,14 @@ BOOL portal_add_filter(struct portal_file_params *params, const WCHAR *name, con
+     params->filter_count++;
+     return TRUE;
+ }
++
++void portal_label(char *dst, const WCHAR *text, UINT index)
++{
++    WCHAR buf[PORTAL_CHOICE_LABEL_MAX], *p;
++
++    lstrcpynW(buf, text ? text : L"", ARRAY_SIZE(buf));
++    for (p = buf; *p; p++)
++        if (*p == '&') memmove(p, p + 1, lstrlenW(p) * sizeof(WCHAR));
++    if (!buf[0]) swprintf(buf, ARRAY_SIZE(buf), L"Option %u", index);
++    portal_utf8(dst, PORTAL_CHOICE_LABEL_MAX, buf);
++}
+diff --git a/dlls/comdlg32/unixlib.h b/dlls/comdlg32/unixlib.h
+--- a/dlls/comdlg32/unixlib.h
++++ b/dlls/comdlg32/unixlib.h
+@@ -18,8 +18,8 @@
+ 
+ /* IFileDialogCustomize check buttons, combo boxes and radio button lists, passed to the
+  * portal as FileChooser "choices"; strings are UTF-8 */
+-#define PORTAL_CHOICES_MAX       8
+-#define PORTAL_CHOICE_ITEMS_MAX  16
++#define PORTAL_CHOICES_MAX       16
++#define PORTAL_CHOICE_ITEMS_MAX  32
+ #define PORTAL_CHOICE_ID_MAX     16
+ #define PORTAL_CHOICE_LABEL_MAX  256
+ 
+@@ -92,6 +92,7 @@ extern NTSTATUS portal_call(enum comdlg32_unix_funcs code, struct portal_file_pa
+ extern void portal_utf8(char *dst, size_t size, const WCHAR *str);
+ extern void portal_unix_path(char *dst, size_t size, const WCHAR *path);
+ extern BOOL portal_add_filter(struct portal_file_params *params, const WCHAR *name, const WCHAR *spec);
++extern void portal_label(char *dst, const WCHAR *text, UINT index);
+ 
+ #endif
+ 
