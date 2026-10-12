@@ -22,9 +22,9 @@ PhotoshopWine: this branch is now a fork of AdobeWine tailored to Photoshop.
   from paths with spaces and pick the right icon. The "Stop all Adobe apps" entry is gone.
 - Files opened from the file manager go straight into a running Photoshop (a ten second delay is
   gone), and files in home folders show as `C:\users\<you>\Pictures` and so on.
-- gdiplus fixes (patches 0089-0094): the Photoshop Home screen draws about 9 times faster
-  in a benchmark (207 ms to 23 ms per frame) and the scroll frame rate in Photoshop is about 3 times
-  higher (5.3 to about 16 fps, median frame time 181 to 41 ms). Fill and scroll benchmarks added.
+- gdiplus and Direct2D fixes (patches 0089-0094, 0097, 0098, 0101-0104): the Photoshop Home
+  screen scrolls with a median frame time of 13 ms instead of 181 ms, and its text targets no longer
+  compile shaders or wait for GPU readbacks. Fill, image, gradient and scroll benchmarks added.
 - Shader cache files are no longer left in the folder Photoshop was started from.
 - Message box text and dialog button labels are no longer cut off at the right edge, and long
   file dialog button labels no longer wrap (patches 0099, 0100).
