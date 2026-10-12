@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Photoshop's file dialogs are your desktop's own (XDG portal): Open, Save As, Export, Place, Save
+  for Web, plugin and folder pickers, modal to Photoshop, with its file types and options and the
+  extension of the chosen type (patches 0072-0083). Other apps get the desktop picker for their plain
+  dialogs; `WINE_FORCE_PORTAL=0` turns it off.
+
 ## 0.2.2 - 2026-10-11
 
 - After Effects renders: adding a comp to the Render Queue no longer kills its main thread (stack

@@ -115,6 +115,10 @@ wine reg add 'HKCU\Software\Wine\AppDefaults\Photoshop.exe\X11 Driver' /v Decora
 for a in Illustrator.exe "Adobe Premiere Pro.exe" "Adobe Audition.exe" "Adobe Media Encoder.exe" AfterFX.exe; do
   wine reg add "HKCU\\Software\\Wine\\AppDefaults\\$a\\X11 Driver" /v Decorated /d N /f >/dev/null
 done
+wine reg add 'HKCU\Software\Wine\X11 Driver' /v FileDialogPortal /d auto /f >/dev/null
+for a in Photoshop.exe PhotoshopPrefsManager.exe; do
+  wine reg add "HKCU\\Software\\Wine\\AppDefaults\\$a\\X11 Driver" /v FileDialogPortal /d always /f >/dev/null
+done
 wine reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f >/dev/null
 wine reg add 'HKCU\Software\Wine\Explorer' /v ShowSystray /t REG_DWORD /d 0 /f >/dev/null
 wine reg add 'HKCU\Software\Wine\DllOverrides' /v winemenubuilder.exe /d '' /f >/dev/null
