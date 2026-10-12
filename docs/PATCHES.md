@@ -109,3 +109,4 @@ to WineHQ; help with that is very welcome.
 | 0099 | win32u | GDI glyph advances come from bi-level hinting in every format, so text is drawn as wide as GetTextExtentPoint32 and DrawText measure it (message box lines cut off at the right edge, a wrapped and cut-off "Open from Adobe cloud storage" button) | nvb-uy |
 | 0100 | comdlg32 | IFileDialog custom push buttons grow to fit a long label instead of wrapping it | nvb-uy |
 | 0101 | gdiplus | Alpha blends to a device context reuse one DIB section instead of creating one per call (fillbench home frame 34.2 to 33.5 ms, page faults 20.6k to 13.8k a frame) | nvb-uy |
+| 0102 | gdiplus | Antialiased fills to a device context are drawn straight into the blend DIB section instead of a zeroed buffer that was then copied (home frame to 30.9 ms, 7.3k page faults) | nvb-uy |
