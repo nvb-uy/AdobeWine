@@ -2,10 +2,30 @@
 
 ## Unreleased
 
-- Photoshop's file dialogs are your desktop's own (XDG portal): Open, Save As, Export, Place, Save
-  for Web, plugin and folder pickers, modal to Photoshop, with its file types and options and the
-  extension of the chosen type (patches 0072-0083). Other apps get the desktop picker for their plain
-  dialogs; `WINE_FORCE_PORTAL=0` turns it off.
+PhotoshopWine: this branch is now a fork of AdobeWine tailored to Photoshop.
+
+- File and folder dialogs use the desktop's own picker through xdg-desktop-portal (KDE, GNOME):
+  Photoshop's Open, Save As, Export, Place, Save for Web, plugin dialogs and folder pickers. They are
+  modal over Photoshop, with its file types, options and button labels, and the extension of the
+  chosen type (patches 0072-0083). Photoshop no longer freezes while one is open. Without a portal
+  the Windows-style dialog is used; `WINE_FORCE_PORTAL=0` turns the picker off. Portal tests cover
+  hooked dialogs, file types, folders and modality.
+- Wine is not visible: no "configuration is being updated" window, no Mono installer prompt during
+  setup, no Wine logo on windows without an icon, no Wine system tray window, no Wine menu entries,
+  and crash and start-up notifications without Wine names. A notification shows while the first
+  start after an update gets ready.
+- Colours, dark or light mode, the accent colour and UI scaling follow the desktop at each launch
+  (KDE colour scheme or the portal's appearance settings). The dark Windows-control theme is
+  generated at build time.
+- Photoshop's dialogs get desktop title bars; the main window keeps Photoshop's own frame.
+- Menu entry "Adobe Photoshop" with the full icon set, PSB files and desktop actions; entries start
+  from paths with spaces and pick the right icon. The "Stop all Adobe apps" entry is gone.
+- Files opened from the file manager go straight into a running Photoshop (a ten second delay is
+  gone), and files in home folders show as `C:\users\<you>\Pictures` and so on.
+- gdiplus fixes (patches 0090-0094 among them): the Photoshop Home screen draws about 9 times faster
+  in a benchmark (207 ms to 23 ms per frame) and the scroll frame rate in Photoshop is about 3 times
+  higher (5.3 to about 16 fps, median frame time 181 to 41 ms). Fill and scroll benchmarks added.
+- Shader cache files are no longer left in the folder Photoshop was started from.
 
 ## 0.2.2 - 2026-10-11
 
