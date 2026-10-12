@@ -1,0 +1,1081 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] comdlg32: Share the portal helpers between the file dialogs.
+
+The open and save dialogs use one request structure, and the policy, string and filter helpers live in portal.c instead of a copy in filedlg.c and itemdlg.c.
+---
+diff --git a/dlls/comdlg32/Makefile.in b/dlls/comdlg32/Makefile.in
+--- a/dlls/comdlg32/Makefile.in
++++ b/dlls/comdlg32/Makefile.in
+@@ -25,5 +25,6 @@ SOURCES = \
+ 	pd32_nocollate.svg \
+ 	pd32_portrait.svg \
+ 	printdlg.c \
++	portal.c \
+ 	portal_dbus.c \
+ 	unixlib.c
+diff --git a/dlls/comdlg32/filedlg.c b/dlls/comdlg32/filedlg.c
+--- a/dlls/comdlg32/filedlg.c
++++ b/dlls/comdlg32/filedlg.c
+@@ -69,7 +69,6 @@
+ #include "filedlgbrowser.h"
+ #include "shlwapi.h"
+ 
+-#include "wine/appdefaults.h"
+ #include "wine/debug.h"
+ #undef WIN32_NO_STATUS
+ #include "ntstatus.h"
+@@ -4334,88 +4333,6 @@ BOOL WINAPI GetOpenFileNameA(OPENFILENAMEA *ofn)
+  * XDG Desktop Portal Integration
+  */
+ 
+-#define UNIX_CALL( func, params ) WINE_UNIX_CALL( unix_ ## func, params )
+-
+-static NTSTATUS call_unix_portal(enum comdlg32_unix_funcs code, void *params)
+-{
+-    NTSTATUS status;
+-
+-    TRACE("call_unix_portal: code=%d, params=%p\n", code, params);
+-
+-    if (!COMDLG32_init_unix_call())
+-    {
+-        TRACE("call_unix_portal: no Unix library, returning STATUS_NOT_SUPPORTED\n");
+-        return STATUS_NOT_SUPPORTED;
+-    }
+-
+-    TRACE("call_unix_portal: Calling WINE_UNIX_CALL with code=%d...\n", code);
+-    status = WINE_UNIX_CALL( code, params );
+-    TRACE("call_unix_portal: WINE_UNIX_CALL returned 0x%08lx\n", (unsigned long)status);
+-    return status;
+-}
+-
+-static void copy_wchar_to_utf8(char *dst, size_t dst_len, const WCHAR *wstr)
+-{
+-    int len;
+-    char *tmp;
+-
+-    if (!dst_len) return;
+-    if (!wstr)
+-    {
+-        dst[0] = 0;
+-        return;
+-    }
+-
+-    len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
+-    if (len <= 0)
+-    {
+-        dst[0] = 0;
+-        return;
+-    }
+-
+-    if ((size_t)len <= dst_len)
+-    {
+-        WideCharToMultiByte(CP_UTF8, 0, wstr, -1, dst, dst_len, NULL, NULL);
+-        return;
+-    }
+-
+-    tmp = malloc(len);
+-    if (!tmp)
+-    {
+-        dst[0] = 0;
+-        return;
+-    }
+-
+-    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, tmp, len, NULL, NULL);
+-    memcpy(dst, tmp, dst_len - 1);
+-    dst[dst_len - 1] = 0;
+-    free(tmp);
+-}
+-
+-static void copy_wchar_to_unix_path(char *dst, size_t dst_len, const WCHAR *wstr)
+-{
+-    char *unix_path;
+-    size_t len;
+-
+-    if (!dst_len) return;
+-    dst[0] = 0;
+-    if (!wstr || !*wstr) return;
+-
+-    unix_path = wine_get_unix_file_name(wstr);
+-    if (unix_path)
+-    {
+-        len = strlen(unix_path);
+-        if (len >= dst_len) len = dst_len - 1;
+-        memcpy(dst, unix_path, len);
+-        dst[len] = 0;
+-        HeapFree(GetProcessHeap(), 0, unix_path);
+-        return;
+-    }
+-
+-    /* Fallback: best-effort conversion in Unix codepage */
+-    WideCharToMultiByte(CP_UNIXCP, 0, wstr, -1, dst, dst_len, NULL, NULL);
+-}
+-
+ static WCHAR *alloc_dir_from_path(const WCHAR *path)
+ {
+     const WCHAR *last;
+@@ -4446,105 +4363,20 @@ static const WCHAR *file_part_from_path(const WCHAR *path)
+     return last ? last + 1 : path;
+ }
+ 
+-static BOOL append_utf8_to_blob(char *dst, size_t dst_len, size_t *pos, const WCHAR *wstr)
+-{
+-    int len;
+-
+-    if (!dst || !dst_len || !pos) return FALSE;
+-    if (!wstr) wstr = L"";
+-
+-    len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
+-    if (len <= 0) return FALSE;
+-
+-    if (*pos + (size_t)len > dst_len)
+-        return FALSE;
+-
+-    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, dst + *pos, len, NULL, NULL);
+-    *pos += len;
+-    return TRUE;
+-}
+-
+-static void build_filters_blob_utf8(char *dst, size_t dst_len, const WCHAR *filter,
+-                                    const WCHAR *custom, UINT *out_count, UINT *out_len)
++static void build_filters_blob_utf8(struct portal_file_params *params, const WCHAR *filter, const WCHAR *custom)
+ {
+     const WCHAR *p;
+-    UINT count = 0;
+-    size_t pos = 0;
+-
+-    if (out_count) *out_count = 0;
+-    if (out_len) *out_len = 0;
+-    if (!dst_len) return;
+-    dst[0] = 0;
+ 
+-    /* custom filter (pair of strings) */
+-    if (custom && *custom)
+-    {
+-        const WCHAR *name = custom;
+-        const WCHAR *pattern = custom + lstrlenW(custom) + 1;
+-        if (*pattern)
+-        {
+-            if (!append_utf8_to_blob(dst, dst_len, &pos, name)) goto done;
+-            if (!append_utf8_to_blob(dst, dst_len, &pos, pattern)) goto done;
+-            count++;
+-        }
+-    }
++    if (custom && *custom && custom[lstrlenW(custom) + 1])
++        if (!portal_add_filter(params, custom, custom + lstrlenW(custom) + 1)) return;
+ 
+-    /* standard filters list (pairs of strings) */
+-    p = filter;
+-    while (p && *p)
++    for (p = filter; p && *p; p += lstrlenW(p) + 1)
+     {
+         const WCHAR *name = p;
+-        p += lstrlenW(p) + 1;
+-        if (!*p) break;
+-        if (!append_utf8_to_blob(dst, dst_len, &pos, name)) goto done;
+-        if (!append_utf8_to_blob(dst, dst_len, &pos, p)) goto done;
+-        count++;
+-        p += lstrlenW(p) + 1;
+-    }
+-
+-done:
+-    /* Ensure final NUL terminator */
+-    if (pos < dst_len) dst[pos++] = 0;
+-    else dst[dst_len - 1] = 0;
+-
+-    if (out_count) *out_count = count;
+-    if (out_len) *out_len = (UINT)pos;
+-}
+-
+-enum portal_policy
+-{
+-    PORTAL_POLICY_AUTO,
+-    PORTAL_POLICY_FORCE,
+-    PORTAL_POLICY_NEVER,
+-};
+-
+-static BOOL get_portal_policy_value(WCHAR *buffer, DWORD size)
+-{
+-    return wine_get_appdefaults_reg_sz(L"X11 Driver", L"FileDialogPortal", buffer, size);
+-}
+-
+-static enum portal_policy get_portal_policy(void)
+-{
+-    const char *force_portal = getenv("WINE_FORCE_PORTAL");
+-    WCHAR value[32];
+-
+-    if (force_portal && *force_portal == '1')
+-        return PORTAL_POLICY_FORCE;
+-    if (force_portal && *force_portal == '0')
+-        return PORTAL_POLICY_NEVER;
+ 
+-    if (get_portal_policy_value(value, sizeof(value)))
+-    {
+-        if (!wcsicmp(value, L"always"))
+-            return PORTAL_POLICY_FORCE;
+-        if (!wcsicmp(value, L"never"))
+-            return PORTAL_POLICY_NEVER;
+-        if (!wcsicmp(value, L"auto"))
+-            return PORTAL_POLICY_AUTO;
++        p += lstrlenW(p) + 1;
++        if (!*p || !portal_add_filter(params, name, p)) break;
+     }
+-
+-    /* off unless enabled: native dialogs stay the default */
+-    return PORTAL_POLICY_NEVER;
+ }
+ 
+ static BOOL should_use_portal(const OPENFILENAMEW *ofn)
+@@ -4553,7 +4385,7 @@ static BOOL should_use_portal(const OPENFILENAMEW *ofn)
+ 
+     TRACE("should_use_portal: Checking portal eligibility: flags=0x%08lx\n", (unsigned long)ofn->Flags);
+ 
+-    policy = get_portal_policy();
++    policy = portal_get_policy();
+     if (policy == PORTAL_POLICY_FORCE)
+         return TRUE;
+     if (policy == PORTAL_POLICY_NEVER)
+@@ -4590,7 +4422,7 @@ static BOOL should_use_portal(const OPENFILENAMEW *ofn)
+ BOOL WINAPI GetOpenFileNameW(OPENFILENAMEW *ofn)
+ {
+     NTSTATUS status;
+-    struct portal_open_file_params *params;
++    struct portal_file_params *params;
+ 
+     TRACE("GetOpenFileNameW called! flags 0x%08lx\n", ofn->Flags);
+ 
+@@ -4618,25 +4450,23 @@ BOOL WINAPI GetOpenFileNameW(OPENFILENAMEW *ofn)
+             COMDLG32_SetCommDlgExtendedError(CDERR_MEMALLOCFAILURE);
+             return FALSE;
+         }
+-        copy_wchar_to_utf8(params->title_utf8, sizeof(params->title_utf8), ofn->lpstrTitle);
++        portal_utf8(params->title_utf8, sizeof(params->title_utf8), ofn->lpstrTitle);
+         params->initial_dir_utf8[0] = 0;
+         if (ofn->lpstrInitialDir && *ofn->lpstrInitialDir)
+         {
+-            copy_wchar_to_unix_path(params->initial_dir_utf8, sizeof(params->initial_dir_utf8), ofn->lpstrInitialDir);
++            portal_unix_path(params->initial_dir_utf8, sizeof(params->initial_dir_utf8), ofn->lpstrInitialDir);
+         }
+         else if (ofn->lpstrFile && *ofn->lpstrFile)
+         {
+             WCHAR *dir = alloc_dir_from_path(ofn->lpstrFile);
+             if (dir)
+             {
+-                copy_wchar_to_unix_path(params->initial_dir_utf8, sizeof(params->initial_dir_utf8), dir);
++                portal_unix_path(params->initial_dir_utf8, sizeof(params->initial_dir_utf8), dir);
+                 free(dir);
+             }
+         }
+ 
+-        build_filters_blob_utf8(params->filters_blob, sizeof(params->filters_blob),
+-                                ofn->lpstrFilter, ofn->lpstrCustomFilter,
+-                                &params->filter_count, &params->filters_blob_len);
++        build_filters_blob_utf8(params, ofn->lpstrFilter, ofn->lpstrCustomFilter);
+         params->current_filter_index = 0;
+         if (params->filter_count)
+         {
+@@ -4651,7 +4481,7 @@ BOOL WINAPI GetOpenFileNameW(OPENFILENAMEW *ofn)
+         params->max_results = max_results;
+ 
+         TRACE("Calling unix_portal_open_file...\n");
+-        status = call_unix_portal(unix_portal_open_file, params);
++        status = portal_call(unix_portal_open_file, params);
+         TRACE("Portal returned status: 0x%08lx\n", (long)status);
+ 
+         if (status == STATUS_BUFFER_TOO_SMALL)
+@@ -4700,7 +4530,7 @@ BOOL WINAPI GetOpenFileNameW(OPENFILENAMEW *ofn)
+         {
+             TRACE("Portal was cancelled, returning FALSE\n");
+         }
+-        else if (status != STATUS_NOT_SUPPORTED && get_portal_policy() == PORTAL_POLICY_FORCE)
++        else if (status != STATUS_NOT_SUPPORTED && portal_get_policy() == PORTAL_POLICY_FORCE)
+         {
+             /* FORCE never silently switches to the Wine dialog after a portal failure */
+             WARN("portal failed (status %#lx), FORCE policy refuses the Wine dialog\n", (long)status);
+@@ -4823,7 +4653,7 @@ BOOL WINAPI GetSaveFileNameW(
+ 	LPOPENFILENAMEW ofn) /* [in/out] address of init structure */
+ {
+     NTSTATUS status;
+-    struct portal_save_file_params *params;
++    struct portal_file_params *params;
+ 
+     TRACE("GetSaveFileNameW called! flags 0x%08lx\n", ofn->Flags);
+ 
+@@ -4846,7 +4676,7 @@ BOOL WINAPI GetSaveFileNameW(
+             COMDLG32_SetCommDlgExtendedError(CDERR_MEMALLOCFAILURE);
+             return FALSE;
+         }
+-        copy_wchar_to_utf8(params->title_utf8, sizeof(params->title_utf8), ofn->lpstrTitle);
++        portal_utf8(params->title_utf8, sizeof(params->title_utf8), ofn->lpstrTitle);
+         params->initial_dir_utf8[0] = 0;
+         params->initial_filename_utf8[0] = 0;
+         params->current_file_unix[0] = 0;
+@@ -4858,11 +4688,11 @@ BOOL WINAPI GetSaveFileNameW(
+             BOOL has_path = (name && name != ofn->lpstrFile) || wcschr(ofn->lpstrFile, L':');
+ 
+             if (name && *name && !has_wildcards)
+-                copy_wchar_to_utf8(params->initial_filename_utf8,
++                portal_utf8(params->initial_filename_utf8,
+                                    sizeof(params->initial_filename_utf8), name);
+ 
+             if (has_path && !has_wildcards)
+-                copy_wchar_to_unix_path(params->current_file_unix,
++                portal_unix_path(params->current_file_unix,
+                                         sizeof(params->current_file_unix), ofn->lpstrFile);
+ 
+             if (name && name != ofn->lpstrFile)
+@@ -4870,7 +4700,7 @@ BOOL WINAPI GetSaveFileNameW(
+                 WCHAR *dir = alloc_dir_from_path(ofn->lpstrFile);
+                 if (dir)
+                 {
+-                    copy_wchar_to_unix_path(params->initial_dir_utf8,
++                    portal_unix_path(params->initial_dir_utf8,
+                                             sizeof(params->initial_dir_utf8), dir);
+                     free(dir);
+                 }
+@@ -4878,12 +4708,10 @@ BOOL WINAPI GetSaveFileNameW(
+         }
+ 
+         if (!params->initial_dir_utf8[0] && ofn->lpstrInitialDir && *ofn->lpstrInitialDir)
+-            copy_wchar_to_unix_path(params->initial_dir_utf8,
++            portal_unix_path(params->initial_dir_utf8,
+                                     sizeof(params->initial_dir_utf8), ofn->lpstrInitialDir);
+ 
+-        build_filters_blob_utf8(params->filters_blob, sizeof(params->filters_blob),
+-                                ofn->lpstrFilter, ofn->lpstrCustomFilter,
+-                                &params->filter_count, &params->filters_blob_len);
++        build_filters_blob_utf8(params, ofn->lpstrFilter, ofn->lpstrCustomFilter);
+         params->current_filter_index = 0;
+         if (params->filter_count)
+         {
+@@ -4895,30 +4723,30 @@ BOOL WINAPI GetSaveFileNameW(
+         params->flags = ofn->Flags;
+ 
+         TRACE("Calling unix_portal_save_file...\n");
+-        status = call_unix_portal(unix_portal_save_file, params);
++        status = portal_call(unix_portal_save_file, params);
+         TRACE("Portal returned status: 0x%08lx\n", (unsigned long)status);
+ 
+         if (status == STATUS_BUFFER_TOO_SMALL)
+         {
+-            WORD size = (params->result_path_len + 1 > 0xffffu) ? 0xffffu : (WORD)(params->result_path_len + 1);
+-            TRACE("Portal returned STATUS_BUFFER_TOO_SMALL (needed %u WCHARs)\n", params->result_path_len + 1);
++            WORD size = (params->result_buffer_len > 0xffffu) ? 0xffffu : (WORD)(params->result_buffer_len);
++            TRACE("Portal returned STATUS_BUFFER_TOO_SMALL (needed %u WCHARs)\n", params->result_buffer_len);
+             if (ofn->lpstrFile) *(WORD *)ofn->lpstrFile = size;
+             COMDLG32_SetCommDlgExtendedError(FNERR_BUFFERTOOSMALL);
+             ret = FALSE;
+         }
+-        else if (status == STATUS_SUCCESS && params->result_path[0])
++        else if (status == STATUS_SUCCESS && params->result_buffer[0])
+         {
+             TRACE("Portal SUCCESS with result!\n");
+             /* Copy result to output buffer */
+-            if (ofn->lpstrFile && lstrlenW(params->result_path) + 1 <= ofn->nMaxFile)
++            if (ofn->lpstrFile && lstrlenW(params->result_buffer) + 1 <= ofn->nMaxFile)
+             {
+-                lstrcpyW(ofn->lpstrFile, params->result_path);
++                lstrcpyW(ofn->lpstrFile, params->result_buffer);
+                 TRACE("Returning TRUE from portal save path\n");
+                 ret = TRUE;
+             }
+             else
+             {
+-                WORD size = (lstrlenW(params->result_path) + 1 > 0xffffu) ? 0xffffu : (WORD)(lstrlenW(params->result_path) + 1);
++                WORD size = (lstrlenW(params->result_buffer) + 1 > 0xffffu) ? 0xffffu : (WORD)(lstrlenW(params->result_buffer) + 1);
+                 TRACE("Buffer too small for portal save result\n");
+                 if (ofn->lpstrFile) *(WORD *)ofn->lpstrFile = size;
+                 COMDLG32_SetCommDlgExtendedError(FNERR_BUFFERTOOSMALL);
+@@ -4929,7 +4757,7 @@ BOOL WINAPI GetSaveFileNameW(
+         {
+             TRACE("Portal was cancelled, returning FALSE\n");
+         }
+-        else if (status != STATUS_NOT_SUPPORTED && get_portal_policy() == PORTAL_POLICY_FORCE)
++        else if (status != STATUS_NOT_SUPPORTED && portal_get_policy() == PORTAL_POLICY_FORCE)
+         {
+             /* FORCE never silently switches to the Wine dialog after a portal failure */
+             WARN("portal failed (status %#lx), FORCE policy refuses the Wine dialog\n", (long)status);
+diff --git a/dlls/comdlg32/itemdlg.c b/dlls/comdlg32/itemdlg.c
+--- a/dlls/comdlg32/itemdlg.c
++++ b/dlls/comdlg32/itemdlg.c
+@@ -36,21 +36,11 @@
+ #undef WIN32_NO_STATUS
+ #include "ntstatus.h"
+ 
+-#include "wine/appdefaults.h"
+ #include "wine/debug.h"
+ #include "wine/list.h"
+ #include "wine/unixlib.h"
+ #include "unixlib.h"
+ 
+-enum portal_policy
+-{
+-    PORTAL_POLICY_AUTO,
+-    PORTAL_POLICY_FORCE,
+-    PORTAL_POLICY_NEVER,
+-};
+-
+-static enum portal_policy get_portal_policy(void);
+-
+ #define IDC_NAV_TOOLBAR      200
+ #define IDC_NAVBACK          201
+ #define IDC_NAVFORWARD       202
+@@ -2583,18 +2573,6 @@ static ULONG WINAPI IFileDialog2_fnRelease(IFileDialog2 *iface)
+ 
+ /* ------------------ XDG Portal Integration ---------------------- */
+ 
+-/***********************************************************************
+- * call_unix_portal
+- *
+- * Internal helper to bridge the PE/Unix boundary using the standard
+- * Wine unix_call pattern.
+- */
+-static NTSTATUS call_unix_portal(enum comdlg32_unix_funcs code, void *params)
+-{
+-	if (!COMDLG32_init_unix_call()) return STATUS_NOT_SUPPORTED;
+-	return WINE_UNIX_CALL(code, params);
+-}
+-
+ static BOOL portal_supports_itemdlg_options(FileDialogImpl *This)
+ {
+     DWORD unsupported_mask = FOS_ALLNONSTORAGEITEMS |
+@@ -2619,7 +2597,7 @@ static BOOL portal_supports_itemdlg_options(FileDialogImpl *This)
+ 
+ static BOOL should_use_portal_for_itemdlg(FileDialogImpl *This)
+ {
+-    enum portal_policy policy = get_portal_policy();
++    enum portal_policy policy = portal_get_policy();
+ 
+     if (policy == PORTAL_POLICY_NEVER)
+         return FALSE;
+@@ -2644,11 +2622,7 @@ static BOOL should_use_portal_for_itemdlg(FileDialogImpl *This)
+         }
+     }
+ 
+-    /* Check if Unix library is available */
+-    {
+-        struct portal_is_available_params params = {0};
+-        return call_unix_portal(unix_portal_is_available, &params) == STATUS_SUCCESS;
+-    }
++    return portal_available();
+ }
+ 
+ static HRESULT create_shell_item_array_from_paths(WCHAR **paths, IShellItemArray **ppsia)
+@@ -2693,67 +2667,6 @@ static HRESULT create_shell_item_array_from_paths(WCHAR **paths, IShellItemArray
+     return hr;
+ }
+ 
+-static void copy_wchar_to_utf8(char *dst, size_t dst_len, const WCHAR *wstr)
+-{
+-	int len;
+-	char *tmp;
+-
+-	if (!dst_len) return;
+-	if (!wstr)
+-	{
+-		dst[0] = 0;
+-		return;
+-	}
+-
+-	len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
+-	if (len <= 0)
+-	{
+-		dst[0] = 0;
+-		return;
+-	}
+-
+-	if ((size_t)len <= dst_len)
+-	{
+-		WideCharToMultiByte(CP_UTF8, 0, wstr, -1, dst, dst_len, NULL, NULL);
+-		return;
+-	}
+-
+-	tmp = malloc(len);
+-	if (!tmp)
+-	{
+-		dst[0] = 0;
+-		return;
+-	}
+-
+-	WideCharToMultiByte(CP_UTF8, 0, wstr, -1, tmp, len, NULL, NULL);
+-	memcpy(dst, tmp, dst_len - 1);
+-	dst[dst_len - 1] = 0;
+-	free(tmp);
+-}
+-
+-static void copy_wchar_to_unix_path(char *dst, size_t dst_len, const WCHAR *wstr)
+-{
+-    char *unix_path;
+-    size_t len;
+-
+-    if (!dst_len) return;
+-    dst[0] = 0;
+-    if (!wstr || !*wstr) return;
+-
+-    unix_path = wine_get_unix_file_name(wstr);
+-    if (unix_path)
+-    {
+-        len = strlen(unix_path);
+-        if (len >= dst_len) len = dst_len - 1;
+-        memcpy(dst, unix_path, len);
+-        dst[len] = 0;
+-        HeapFree(GetProcessHeap(), 0, unix_path);
+-        return;
+-    }
+-
+-    WideCharToMultiByte(CP_UNIXCP, 0, wstr, -1, dst, dst_len, NULL, NULL);
+-}
+-
+ static WCHAR *alloc_dir_from_path(const WCHAR *path)
+ {
+     const WCHAR *last;
+@@ -2783,50 +2696,16 @@ static const WCHAR *file_part_from_path(const WCHAR *path)
+     return last ? last + 1 : path;
+ }
+ 
+-static BOOL append_utf8_to_blob(char *dst, size_t dst_len, size_t *pos, const WCHAR *wstr)
+-{
+-    int len;
+-
+-    if (!dst || !dst_len || !pos) return FALSE;
+-    if (!wstr) wstr = L"";
+-
+-    len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
+-    if (len <= 0) return FALSE;
+-
+-    if (*pos + (size_t)len > dst_len)
+-        return FALSE;
+-
+-    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, dst + *pos, len, NULL, NULL);
+-    *pos += len;
+-    return TRUE;
+-}
+-
+-static void build_filters_blob_from_specs(char *dst, size_t dst_len,
+-                                           const COMDLG_FILTERSPEC *specs, UINT spec_count,
+-                                           UINT *out_count, UINT *out_len)
++static void build_filters_blob_from_specs(struct portal_file_params *params,
++                                           const COMDLG_FILTERSPEC *specs, UINT spec_count)
+ {
+-    size_t pos = 0;
+-    UINT count = 0;
+     UINT i;
+ 
+-    if (out_count) *out_count = 0;
+-    if (out_len) *out_len = 0;
+-    if (!dst_len) return;
+-    dst[0] = 0;
+-
+     for (i = 0; i < spec_count; i++)
+     {
+         if (!specs[i].pszName || !specs[i].pszSpec) continue;
+-        if (!append_utf8_to_blob(dst, dst_len, &pos, specs[i].pszName)) break;
+-        if (!append_utf8_to_blob(dst, dst_len, &pos, specs[i].pszSpec)) break;
+-        count++;
++        if (!portal_add_filter(params, specs[i].pszName, specs[i].pszSpec)) break;
+     }
+-
+-    if (pos < dst_len) dst[pos++] = 0;
+-    else dst[dst_len - 1] = 0;
+-
+-    if (out_count) *out_count = count;
+-    if (out_len) *out_len = (UINT)pos;
+ }
+ 
+ static BOOL get_shellitem_filesys_path(IShellItem *psi, WCHAR *buf, UINT buf_len)
+@@ -2848,35 +2727,6 @@ static BOOL get_shellitem_filesys_path(IShellItem *psi, WCHAR *buf, UINT buf_len
+     return ok;
+ }
+ 
+-static BOOL get_portal_policy_value(WCHAR *buffer, DWORD size)
+-{
+-    return wine_get_appdefaults_reg_sz(L"X11 Driver", L"FileDialogPortal", buffer, size);
+-}
+-
+-static enum portal_policy get_portal_policy(void)
+-{
+-    const char *force_portal = getenv("WINE_FORCE_PORTAL");
+-    WCHAR value[32];
+-
+-    if (force_portal && *force_portal == '1')
+-        return PORTAL_POLICY_FORCE;
+-    if (force_portal && *force_portal == '0')
+-        return PORTAL_POLICY_NEVER;
+-
+-    if (get_portal_policy_value(value, sizeof(value)))
+-    {
+-        if (!wcsicmp(value, L"always"))
+-            return PORTAL_POLICY_FORCE;
+-        if (!wcsicmp(value, L"never"))
+-            return PORTAL_POLICY_NEVER;
+-        if (!wcsicmp(value, L"auto"))
+-            return PORTAL_POLICY_AUTO;
+-    }
+-
+-    /* off unless enabled: native dialogs stay the default */
+-    return PORTAL_POLICY_NEVER;
+-}
+-
+ /* Custom controls (After Effects: "Import As" combo box, "Sequence" check buttons) are passed to
+  * the portal as choices, and the values picked there are written back before OnFileOk. */
+ static void portal_choice_label(char *dst, const WCHAR *label, const WCHAR *fallback, UINT index)
+@@ -2889,7 +2739,7 @@ static void portal_choice_label(char *dst, const WCHAR *label, const WCHAR *fall
+         swprintf(buf, ARRAY_SIZE(buf), fallback, index);
+         label = buf;
+     }
+-    copy_wchar_to_utf8(dst, PORTAL_CHOICE_LABEL_MAX, label);
++    portal_utf8(dst, PORTAL_CHOICE_LABEL_MAX, label);
+ }
+ 
+ static WCHAR *portal_get_window_text(HWND hwnd)
+@@ -3076,8 +2926,8 @@ static void portal_apply_choices(FileDialogImpl *This, const struct portal_choic
+ 
+ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ {
+-    struct portal_open_file_params *open_params = NULL;
+-    struct portal_save_file_params *save_params = NULL;
++    struct portal_file_params *open_params = NULL;
++    struct portal_file_params *save_params = NULL;
+     customctrl *choice_map[PORTAL_CHOICES_MAX];
+     WCHAR folder_w[MAX_PATH];
+     WCHAR *dir;
+@@ -3092,21 +2942,19 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+         if (!(open_params = calloc(1, sizeof(*open_params)))) return E_OUTOFMEMORY;
+ 
+         /* Open file dialog */
+-        copy_wchar_to_utf8(open_params->title_utf8, sizeof(open_params->title_utf8), This->custom_title);
++        portal_utf8(open_params->title_utf8, sizeof(open_params->title_utf8), This->custom_title);
+         open_params->initial_dir_utf8[0] = 0;
+         if (This->psi_setfolder || This->psi_defaultfolder)
+         {
+ 			if (get_shellitem_filesys_path(This->psi_setfolder ? This->psi_setfolder : This->psi_defaultfolder,
+ 			                               folder_w, ARRAY_SIZE(folder_w)))
+ 			{
+-				copy_wchar_to_unix_path(open_params->initial_dir_utf8,
++				portal_unix_path(open_params->initial_dir_utf8,
+ 				                        sizeof(open_params->initial_dir_utf8), folder_w);
+ 			}
+ 		}
+ 
+-		build_filters_blob_from_specs(open_params->filters_blob, sizeof(open_params->filters_blob),
+-		                              This->filterspecs, This->filterspec_count,
+-		                              &open_params->filter_count, &open_params->filters_blob_len);
++		build_filters_blob_from_specs(open_params, This->filterspecs, This->filterspec_count);
+ 		filter_index = This->filetypeindex + 1;
+ 		open_params->current_filter_index = (open_params->filter_count &&
+ 		                                    filter_index <= open_params->filter_count) ? filter_index :
+@@ -3125,7 +2973,7 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ 		open_params->result_buffer_len = 0;
+ 
+         /* Call Unix library */
+-        status = call_unix_portal(unix_portal_open_file, open_params);
++        status = portal_call(unix_portal_open_file, open_params);
+ 
+         /* Handle result */
+         TRACE("portal open result: status=0x%08lx count=%u first_char=%04x grouped=%u\n",
+@@ -3243,7 +3091,7 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ 		if (!(save_params = calloc(1, sizeof(*save_params)))) return E_OUTOFMEMORY;
+ 
+ 		/* Save file dialog */
+-		copy_wchar_to_utf8(save_params->title_utf8, sizeof(save_params->title_utf8), This->custom_title);
++		portal_utf8(save_params->title_utf8, sizeof(save_params->title_utf8), This->custom_title);
+ 		save_params->initial_dir_utf8[0] = 0;
+ 		save_params->initial_filename_utf8[0] = 0;
+ 		save_params->current_file_unix[0] = 0;
+@@ -3255,11 +3103,11 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ 			BOOL has_path = (name && name != This->set_filename) || wcschr(This->set_filename, L':');
+ 
+ 			if (name && *name && !has_wildcards)
+-				copy_wchar_to_utf8(save_params->initial_filename_utf8,
++				portal_utf8(save_params->initial_filename_utf8,
+ 				                   sizeof(save_params->initial_filename_utf8), name);
+ 
+ 			if (has_path && !has_wildcards)
+-				copy_wchar_to_unix_path(save_params->current_file_unix,
++				portal_unix_path(save_params->current_file_unix,
+ 				                        sizeof(save_params->current_file_unix), This->set_filename);
+ 
+ 			if (name && name != This->set_filename)
+@@ -3267,7 +3115,7 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ 				dir = alloc_dir_from_path(This->set_filename);
+ 				if (dir)
+ 				{
+-					copy_wchar_to_unix_path(save_params->initial_dir_utf8,
++					portal_unix_path(save_params->initial_dir_utf8,
+ 					                        sizeof(save_params->initial_dir_utf8), dir);
+ 					free(dir);
+ 				}
+@@ -3279,14 +3127,12 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ 			if (get_shellitem_filesys_path(This->psi_setfolder ? This->psi_setfolder : This->psi_defaultfolder,
+ 			                               folder_w, ARRAY_SIZE(folder_w)))
+ 			{
+-				copy_wchar_to_unix_path(save_params->initial_dir_utf8,
++				portal_unix_path(save_params->initial_dir_utf8,
+ 				                        sizeof(save_params->initial_dir_utf8), folder_w);
+ 			}
+ 		}
+ 
+-		build_filters_blob_from_specs(save_params->filters_blob, sizeof(save_params->filters_blob),
+-		                              This->filterspecs, This->filterspec_count,
+-		                              &save_params->filter_count, &save_params->filters_blob_len);
++		build_filters_blob_from_specs(save_params, This->filterspecs, This->filterspec_count);
+ 		filter_index = This->filetypeindex + 1;
+ 		save_params->current_filter_index = (save_params->filter_count &&
+ 		                                    filter_index <= save_params->filter_count) ? filter_index :
+@@ -3295,12 +3141,12 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ 		portal_build_choices(This, &save_params->choices, choice_map);
+ 
+         /* Call Unix library */
+-        status = call_unix_portal(unix_portal_save_file, save_params);
++        status = portal_call(unix_portal_save_file, save_params);
+         TRACE("portal save: status=%08lx len=%u first=%04x path=%s\n",
+-              status, save_params->result_path_len,
+-              save_params->result_path[0], debugstr_w(save_params->result_path));
++              status, save_params->result_buffer_len,
++              save_params->result_buffer[0], debugstr_w(save_params->result_buffer));
+         /* Handle result */
+-        if (status == STATUS_SUCCESS && save_params->result_path[0])
++        if (status == STATUS_SUCCESS && save_params->result_buffer[0])
+         {
+ 			PIDLIST_ABSOLUTE pidl = NULL;
+ 			HRESULT hr_array;
+@@ -3316,12 +3162,12 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ 			/* Convert path to IShellItem; allow non-existent targets.
+ 			 * Order: parse path; try shell item; try ILCreateFromPathW; last resort temp placeholder
+ 			 * (delete-on-close) so SHParseDisplayName can succeed without leaving user-visible files. */
+-			hr = SHParseDisplayName(save_params->result_path, NULL, &pidl, 0, NULL);
++			hr = SHParseDisplayName(save_params->result_buffer, NULL, &pidl, 0, NULL);
+ 
+ 			if (FAILED(hr) || !pidl)
+ 			{
+ 				IShellItem *psi = NULL;
+-				hr = SHCreateItemFromParsingName(save_params->result_path, NULL, &IID_IShellItem, (void **)&psi);
++				hr = SHCreateItemFromParsingName(save_params->result_buffer, NULL, &IID_IShellItem, (void **)&psi);
+ 				if (SUCCEEDED(hr) && psi)
+ 				{
+ 					if (FAILED(SHGetIDListFromObject((IUnknown *)psi, &pidl))) pidl = NULL;
+@@ -3331,23 +3177,23 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ 
+ 			/* Prefer ILCreateFromPathW before touching disk. */
+ 			if (!pidl)
+-				pidl = ILCreateFromPathW(save_params->result_path);
++				pidl = ILCreateFromPathW(save_params->result_buffer);
+ 
+ 			if (!pidl)
+ 			{
+ 				/* Last resort: create a temp placeholder (delete-on-close) so SHParseDisplayName can succeed. */
+-				HANDLE h = CreateFileW(save_params->result_path, GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
++				HANDLE h = CreateFileW(save_params->result_buffer, GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
+ 				                      NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, NULL);
+ 				if (h != INVALID_HANDLE_VALUE)
+ 				{
+-					hr = SHParseDisplayName(save_params->result_path, NULL, &pidl, 0, NULL);
++					hr = SHParseDisplayName(save_params->result_buffer, NULL, &pidl, 0, NULL);
+ 					CloseHandle(h);
+ 				}
+ 			}
+ 
+ 			if (!pidl)
+ 			{
+-				WARN("Could not create PIDL for save path %s\n", debugstr_w(save_params->result_path));
++				WARN("Could not create PIDL for save path %s\n", debugstr_w(save_params->result_buffer));
+ 			}
+ 
+ 			if (pidl)
+@@ -3355,21 +3201,21 @@ static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+ 				hr_array = SHCreateShellItemArrayFromIDLists(1, (LPCITEMIDLIST*)&pidl, &This->psia_results);
+ 				ILFree(pidl);
+ 				if (FAILED(hr_array) || !This->psia_results)
+-					WARN("SHCreateShellItemArrayFromIDLists failed %08lx for %s\n", hr_array, debugstr_w(save_params->result_path));
++					WARN("SHCreateShellItemArrayFromIDLists failed %08lx for %s\n", hr_array, debugstr_w(save_params->result_buffer));
+ 				else
+ 					TRACE("portal save: built ShellItemArray for %s hr=%08lx\n",
+-					      debugstr_w(save_params->result_path), hr_array);
++					      debugstr_w(save_params->result_buffer), hr_array);
+ 			}
+ 			else
+ 			{
+ 				hr_array = E_FAIL;
+ 			}
+-			TRACE("portal save: pidl=%p hr_array=%08lx path=%s\n", pidl, hr_array, debugstr_w(save_params->result_path));
++			TRACE("portal save: pidl=%p hr_array=%08lx path=%s\n", pidl, hr_array, debugstr_w(save_params->result_buffer));
+ 
+ 			/* Mirror the chosen path into filename edit for apps querying GetFileName */
+-            set_file_name(This, save_params->result_path);
+-            set_result_folder(This, save_params->result_path);
+-            cache_portal_result(This, save_params->result_path);
++            set_file_name(This, save_params->result_buffer);
++            set_result_folder(This, save_params->result_buffer);
++            cache_portal_result(This, save_params->result_buffer);
+             /* Fire OnFileOk so apps see the choice immediately */
+             hr = events_OnFileOk(This);
+             /* If app rejected (S_FALSE), surface cancel; if we lack results, fail to avoid legacy fallback */
+@@ -3413,7 +3259,7 @@ static HRESULT WINAPI IFileDialog2_fnShow(IFileDialog2 *iface, HWND hwndOwner)
+         TRACE("IFileDialog2_Show returning %08lx from portal\n", hr);
+         if (hr != E_FAIL)
+             return hr;
+-        if (get_portal_policy() == PORTAL_POLICY_FORCE)
++        if (portal_get_policy() == PORTAL_POLICY_FORCE)
+         {
+             TRACE("portal attempt failed (hr=%08lx), FORCE policy refuses native itemdlg fallback\n", hr);
+             return hr;
+diff --git a/dlls/comdlg32/portal.c b/dlls/comdlg32/portal.c
+new file mode 100644
+--- /dev/null
++++ b/dlls/comdlg32/portal.c
+@@ -0,0 +1,128 @@
++/*
++ * Desktop portal helpers shared by the file dialogs
++ *
++ * Copyright 2026 nvb-uy
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#include <stdarg.h>
++#include <stdlib.h>
++
++#define WIN32_NO_STATUS
++#include "windef.h"
++#include "winbase.h"
++#include "wingdi.h"
++#include "winreg.h"
++#include "winuser.h"
++#include "winternl.h"
++#include "commdlg.h"
++#undef WIN32_NO_STATUS
++#include "ntstatus.h"
++
++#include "cdlg.h"
++#include "wine/appdefaults.h"
++#include "wine/debug.h"
++#include "wine/unixlib.h"
++#include "unixlib.h"
++
++WINE_DEFAULT_DEBUG_CHANNEL(commdlg);
++
++enum portal_policy portal_get_policy(void)
++{
++    const char *env = getenv("WINE_FORCE_PORTAL");
++    WCHAR value[32];
++
++    if (env && *env == '1') return PORTAL_POLICY_FORCE;
++    if (env && *env == '0') return PORTAL_POLICY_NEVER;
++
++    if (wine_get_appdefaults_reg_sz(L"X11 Driver", L"FileDialogPortal", value, sizeof(value)))
++    {
++        if (!wcsicmp(value, L"always")) return PORTAL_POLICY_FORCE;
++        if (!wcsicmp(value, L"auto")) return PORTAL_POLICY_AUTO;
++    }
++    return PORTAL_POLICY_NEVER;
++}
++
++NTSTATUS portal_call(enum comdlg32_unix_funcs code, struct portal_file_params *params)
++{
++    NTSTATUS status;
++
++    if (!COMDLG32_init_unix_call()) return STATUS_NOT_SUPPORTED;
++    status = WINE_UNIX_CALL(code, params);
++    TRACE("call %u returned %#lx\n", code, status);
++    return status;
++}
++
++BOOL portal_available(void)
++{
++    struct portal_is_available_params params = {0};
++
++    return COMDLG32_init_unix_call() && !WINE_UNIX_CALL(unix_portal_is_available, &params);
++}
++
++void portal_utf8(char *dst, size_t size, const WCHAR *str)
++{
++    if (!size) return;
++    dst[0] = 0;
++    if (!str) return;
++    if (!WideCharToMultiByte(CP_UTF8, 0, str, -1, dst, size, NULL, NULL))
++    {
++        int len = WideCharToMultiByte(CP_UTF8, 0, str, -1, NULL, 0, NULL, NULL);
++        char *tmp = len > 0 ? malloc(len) : NULL;
++
++        if (!tmp) return;
++        WideCharToMultiByte(CP_UTF8, 0, str, -1, tmp, len, NULL, NULL);
++        lstrcpynA(dst, tmp, size);
++        free(tmp);
++    }
++}
++
++void portal_unix_path(char *dst, size_t size, const WCHAR *path)
++{
++    char *unix_path;
++
++    if (!size) return;
++    dst[0] = 0;
++    if (!path || !*path) return;
++
++    if (!(unix_path = wine_get_unix_file_name(path))) return;
++    lstrcpynA(dst, unix_path, size);
++    HeapFree(GetProcessHeap(), 0, unix_path);
++}
++
++BOOL portal_add_filter(struct portal_file_params *params, const WCHAR *name, const WCHAR *spec)
++{
++    UINT size = sizeof(params->filters_blob), pos = params->filters_blob_len;
++    int name_len, spec_len;
++
++    if (pos) pos--;
++    name_len = WideCharToMultiByte(CP_UTF8, 0, name, -1, NULL, 0, NULL, NULL);
++    spec_len = WideCharToMultiByte(CP_UTF8, 0, spec, -1, NULL, 0, NULL, NULL);
++    if (name_len <= 0 || spec_len <= 0 || pos + name_len + spec_len + 1 > size)
++    {
++        WARN("no room for filter %s\n", debugstr_w(name));
++        return FALSE;
++    }
++
++    WideCharToMultiByte(CP_UTF8, 0, name, -1, params->filters_blob + pos, name_len, NULL, NULL);
++    pos += name_len;
++    WideCharToMultiByte(CP_UTF8, 0, spec, -1, params->filters_blob + pos, spec_len, NULL, NULL);
++    pos += spec_len;
++    params->filters_blob[pos++] = 0;
++    params->filters_blob_len = pos;
++    params->filter_count++;
++    return TRUE;
++}
+diff --git a/dlls/comdlg32/portal_dbus.c b/dlls/comdlg32/portal_dbus.c
+--- a/dlls/comdlg32/portal_dbus.c
++++ b/dlls/comdlg32/portal_dbus.c
+@@ -1072,7 +1072,7 @@ static UINT split_dir_and_name(const WCHAR *path, WCHAR *dir, UINT dir_cap, cons
+ /* Public entry point: OpenFile */
+ NTSTATUS CDECL portal_open_file(void *args)
+ {
+-    struct portal_open_file_params *params = args;
++    struct portal_file_params *params = args;
+     struct portal_context ctx = {0};
+     NTSTATUS status;
+     UINT i, count, out_count;
+@@ -1247,7 +1247,7 @@ open_done:
+ /* Public entry point: SaveFile */
+ NTSTATUS CDECL portal_save_file(void *args)
+ {
+-    struct portal_save_file_params *params = args;
++    struct portal_file_params *params = args;
+     struct portal_context ctx = {0};
+     NTSTATUS status;
+ 
+@@ -1270,23 +1270,25 @@ NTSTATUS CDECL portal_save_file(void *args)
+                                   &params->choices);
+     TRACE("portal_save_file: portal_call_and_wait returned 0x%08x\n", (unsigned int)status);
+ 
++    params->result_count = 0;
++    params->result_grouped = 0;
++    params->result_buffer_len = 0;
++    params->result_buffer[0] = 0;
++
+     if (status == STATUS_SUCCESS && ctx.result_uris && ctx.result_uris[0])
+     {
+         WCHAR *dos_path = NULL;
+         if (uri_to_win32_path(ctx.result_uris[0], &dos_path, TRUE) == STATUS_SUCCESS)
+         {
+             UINT len = wcslen(dos_path);
+-            if (len < PORTAL_PATH_MAX)
+-            {
+-                memcpy(params->result_path, dos_path, (len + 1) * sizeof(WCHAR));
+-                params->result_path_len = len;
+-            }
+-            else
++
++            params->result_buffer_len = len + 1;
++            if (len < ARRAY_SIZE(params->result_buffer))
+             {
+-                params->result_path[0] = 0;
+-                params->result_path_len = len;
+-                status = STATUS_BUFFER_TOO_SMALL;
++                memcpy(params->result_buffer, dos_path, (len + 1) * sizeof(WCHAR));
++                params->result_count = 1;
+             }
++            else status = STATUS_BUFFER_TOO_SMALL;
+             free(dos_path);
+         }
+     }
+diff --git a/dlls/comdlg32/unixlib.h b/dlls/comdlg32/unixlib.h
+--- a/dlls/comdlg32/unixlib.h
++++ b/dlls/comdlg32/unixlib.h
+@@ -11,7 +11,7 @@
+ /* Packed OPENFILENAMEW multi-select results can be large. */
+ #define PORTAL_RESULT_MAX  65536
+ 
+-/* Internal portal request flags carried in portal_open_file_params.flags. */
++/* Internal portal request flags carried in portal_file_params.flags. */
+ #define PORTAL_OPEN_FLAG_MULTIPLE   0x00000001
+ #define PORTAL_OPEN_FLAG_DIRECTORY  0x00000002
+ 
+@@ -44,10 +44,12 @@ struct portal_choices
+     struct portal_choice choice[PORTAL_CHOICES_MAX];
+ };
+ 
+-struct portal_open_file_params
++struct portal_file_params
+ {
+     char title_utf8[PORTAL_STR_MAX];
+     char initial_dir_utf8[PORTAL_PATH_MAX];
++    char initial_filename_utf8[PORTAL_PATH_MAX];
++    char current_file_unix[PORTAL_PATH_MAX];
+     char filters_blob[PORTAL_FILTERS_MAX];
+     UINT filters_blob_len;
+     UINT filter_count;         /* number of (name, pattern) pairs */
+@@ -61,22 +63,6 @@ struct portal_open_file_params
+     struct portal_choices choices;
+ };
+ 
+-struct portal_save_file_params
+-{
+-    char title_utf8[PORTAL_STR_MAX];
+-    char initial_dir_utf8[PORTAL_PATH_MAX];
+-    char initial_filename_utf8[PORTAL_PATH_MAX];
+-    char current_file_unix[PORTAL_PATH_MAX];
+-    char filters_blob[PORTAL_FILTERS_MAX];
+-    UINT filters_blob_len;
+-    UINT filter_count;         /* number of (name, pattern) pairs */
+-    UINT current_filter_index; /* 1-based index, 0 if unset */
+-    DWORD flags;
+-    WCHAR result_path[PORTAL_PATH_MAX]; /* Out: selected path */
+-    UINT result_path_len; /* characters, excluding NUL; 0 if none */
+-    struct portal_choices choices;
+-};
+-
+ struct portal_is_available_params
+ {
+     UINT reserved;
+@@ -89,4 +75,22 @@ enum comdlg32_unix_funcs
+     unix_portal_is_available,
+ };
+ 
++#ifndef WINE_UNIX_LIB
++
++enum portal_policy
++{
++    PORTAL_POLICY_AUTO,
++    PORTAL_POLICY_FORCE,
++    PORTAL_POLICY_NEVER,
++};
++
++extern enum portal_policy portal_get_policy(void);
++extern BOOL portal_available(void);
++extern NTSTATUS portal_call(enum comdlg32_unix_funcs code, struct portal_file_params *params);
++extern void portal_utf8(char *dst, size_t size, const WCHAR *str);
++extern void portal_unix_path(char *dst, size_t size, const WCHAR *path);
++extern BOOL portal_add_filter(struct portal_file_params *params, const WCHAR *name, const WCHAR *spec);
++
++#endif
++
+ #endif /* __WINE_COMDLG32_UNIXLIB_H */
