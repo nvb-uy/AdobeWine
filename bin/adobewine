@@ -126,6 +126,11 @@ core_fonts() {
 core_fonts
 log="$ADOBEWINE_HOME/logs/$cmd-$(date +%Y%m%d-%H%M%S).log"
 echo "log: $log"
+stamp="$({ tr -d '\r\n' < "$WINEPREFIX/.update-timestamp"; } 2>/dev/null)"
+inf="$(stat -c %Y "$ADOBEWINE_RUNTIME/share/wine/wine.inf" 2>/dev/null)"
+if [ -n "$inf" ] && [ "${stamp#disable}" = "$stamp" ] && [ "$stamp" != "$inf" ] && command -v notify-send >/dev/null; then
+  notify-send -a "$t" -i "$i" "$t is getting ready" "The first start after an update takes a little longer."
+fi
 python3 -I "$ADOBEWINE_SRC/scripts/desktop-settings.py"
 start=$SECONDS
 wine "$exe" "${args[@]}" > "$log" 2>&1
