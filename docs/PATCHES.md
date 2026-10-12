@@ -82,3 +82,4 @@ to WineHQ; help with that is very welcome.
 | 0070 | win32u | Copy waited-for offscreen presents only after they completed | nvb-uy |
 | 0071 | msvcp140 | Concurrency::details::platform::GetNextAsyncId (AdobeNotificationHelper aborted on the stub) | nvb-uy |
 | 0085 | wineboot | No "configuration is being updated" window while the prefix is updated | nvb-uy |
+| 0086 | user32 | Windows without an icon get the executable's icon instead of the Wine logo | nvb-uy |
