@@ -1,0 +1,43 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] comdlg32: Offer enabled custom controls without mnemonics as portal choices.
+
+Disabled custom controls are left alone, both when building the request and when setting the values that came back, and the & mnemonic markers are removed from labels, so Photoshop's 'I&CC Profile:' shows up as 'ICC Profile:'.
+---
+diff --git a/dlls/comdlg32/itemdlg.c b/dlls/comdlg32/itemdlg.c
+--- a/dlls/comdlg32/itemdlg.c
++++ b/dlls/comdlg32/itemdlg.c
+@@ -2767,7 +2767,7 @@ static void portal_add_choice(struct portal_choices *choices, customctrl **map,
+     UINT count = 0, sel = 0, i, n;
+     WCHAR *label;
+ 
+-    if (!(ctrl->cdcstate & CDCS_VISIBLE)) return;
++    if ((ctrl->cdcstate & (CDCS_VISIBLE | CDCS_ENABLED)) != (CDCS_VISIBLE | CDCS_ENABLED)) return;
+     if (ctrl->type != IDLG_CCTRL_CHECKBUTTON && ctrl->type != IDLG_CCTRL_COMBOBOX &&
+         ctrl->type != IDLG_CCTRL_RADIOBUTTONLIST) return;
+     if (choices->count >= PORTAL_CHOICES_MAX)
+@@ -2788,7 +2788,7 @@ static void portal_add_choice(struct portal_choices *choices, customctrl **map,
+         free(label);
+         label = portal_get_window_text(text->hwnd);
+     }
+-    portal_choice_label(c->label, label, L"Option %u", choices->count + 1);
++    portal_label(c->label, label, choices->count + 1);
+     free(label);
+ 
+     if (ctrl->type == IDLG_CCTRL_CHECKBUTTON)
+@@ -2839,7 +2839,7 @@ static void portal_add_choice(struct portal_choices *choices, customctrl **map,
+             /* keep the selected item when the list has to be truncated */
+             if (n == PORTAL_CHOICE_ITEMS_MAX - 1 && selected && !c->initial[0]) item = selected;
+             snprintf(c->items[n].id, sizeof(c->items[n].id), "%lu", item->id);
+-            portal_choice_label(c->items[n].label, item->label, L"Item %u", n + 1);
++            portal_label(c->items[n].label, item->label, n + 1);
+             if (item == selected) strcpy(c->initial, c->items[n].id);
+             if (++n == PORTAL_CHOICE_ITEMS_MAX) break;
+         }
+@@ -2896,6 +2896,7 @@ static void portal_apply_choices(FileDialogImpl *This, const struct portal_choic
+         DWORD item_id;
+ 
+         if (!c->selected[0]) continue;
++        if ((ctrl->cdcstate & (CDCS_VISIBLE | CDCS_ENABLED)) != (CDCS_VISIBLE | CDCS_ENABLED)) continue;
+         TRACE("control %u: %s\n", ctrl->id, debugstr_a(c->selected));
+ 
+         if (ctrl->type == IDLG_CCTRL_CHECKBUTTON)

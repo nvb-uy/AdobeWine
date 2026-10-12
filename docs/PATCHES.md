@@ -88,6 +88,7 @@ to WineHQ; help with that is very welcome.
 | 0076 | comdlg32 | Only existing folders and files are sent to the portal, resolved (~/Documents rather than the prefix's link to it) | nvb-uy |
 | 0077 | comdlg32 | GetOpenFileName and GetSaveFileName drive the portal from a hidden Explorer dialog, so hooks, templates, CDN_FILEOK and ANSI structures keep working | nvb-uy |
 | 0078 | comdlg32 | Check boxes, combo boxes and radio buttons of dialog templates (Save for Web, filter plugins) become portal choices | nvb-uy |
+| 0079 | comdlg32 | Only enabled IFileDialog custom controls become portal choices, labels without & mnemonics | nvb-uy |
 | 0085 | wineboot | No "configuration is being updated" window while the prefix is updated | nvb-uy |
 | 0086 | user32 | Windows without an icon get the executable's icon instead of the Wine logo | nvb-uy |
 | 0087 | win32u | `Decorated=owned` in the X11 Driver key lets the window manager decorate owned windows (dialogs) only | nvb-uy |
