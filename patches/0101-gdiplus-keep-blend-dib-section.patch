@@ -1,0 +1,185 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] gdiplus: Keep the temporary DIB section of device context alpha blends.
+
+Every blend to a device context created and freed a DIB section as large as the drawn area, and Photoshop's Home screen blends several window sized fills each frame, so most of the memory was fresh pages. Larger blends now reuse one DIB section that grows as needed; small ones and blends from other threads while it is in use still get their own.
+---
+diff --git a/dlls/gdiplus/gdiplus.c b/dlls/gdiplus/gdiplus.c
+--- a/dlls/gdiplus/gdiplus.c
++++ b/dlls/gdiplus/gdiplus.c
+@@ -72,6 +72,7 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
+         if (reserved) break;
+         free_installed_fonts();
+         free_generic_string_formats();
++        free_blend_cache();
+         break;
+     }
+     return TRUE;
+diff --git a/dlls/gdiplus/gdiplus_private.h b/dlls/gdiplus/gdiplus_private.h
+--- a/dlls/gdiplus/gdiplus_private.h
++++ b/dlls/gdiplus/gdiplus_private.h
+@@ -150,6 +150,7 @@ extern void get_font_hfont(GpGraphics *graphics, GDIPCONST GpFont *font,
+                            LOGFONTW *lfw_return, GDIPCONST GpMatrix *matrix);
+ 
+ extern void free_installed_fonts(void);
++extern void free_blend_cache(void);
+ 
+ extern BOOL lengthen_path(GpPath *path, INT len);
+ 
+diff --git a/dlls/gdiplus/graphics.c b/dlls/gdiplus/graphics.c
+--- a/dlls/gdiplus/graphics.c
++++ b/dlls/gdiplus/graphics.c
+@@ -571,58 +571,121 @@ static void blend_32bppARGB(UINT width, UINT height, BYTE *dst_bits,
+     }
+ }
+ 
++struct blend_dib
++{
++    HDC hdc;
++    HBITMAP bitmap, old_bitmap;
++    BYTE *bits;
++    INT width, height;
++};
++
++#define BLEND_CACHE_MIN_PIXELS 4096
++#define BLEND_CACHE_MAX_PIXELS (16 * 1024 * 1024)
++
++static struct blend_dib blend_cache;
++static LONG blend_cache_busy;
++
++static BOOL create_blend_dib(struct blend_dib *dib, INT width, INT height)
++{
++    BITMAPINFOHEADER bih = { sizeof(bih), width, -height, 1, 32, BI_RGB };
++
++    if (!(dib->hdc = CreateCompatibleDC(0)))
++        return FALSE;
++
++    dib->bitmap = CreateDIBSection(dib->hdc, (BITMAPINFO *)&bih, DIB_RGB_COLORS, (void **)&dib->bits, NULL, 0);
++    if (!dib->bitmap || !dib->bits)
++    {
++        if (dib->bitmap)
++            DeleteObject(dib->bitmap);
++        DeleteDC(dib->hdc);
++        dib->hdc = NULL;
++        return FALSE;
++    }
++
++    dib->old_bitmap = SelectObject(dib->hdc, dib->bitmap);
++    dib->width = width;
++    dib->height = height;
++    return TRUE;
++}
++
++static void delete_blend_dib(struct blend_dib *dib)
++{
++    if (!dib->hdc)
++        return;
++
++    SelectObject(dib->hdc, dib->old_bitmap);
++    DeleteObject(dib->bitmap);
++    DeleteDC(dib->hdc);
++    dib->hdc = NULL;
++    dib->width = dib->height = 0;
++}
++
++static struct blend_dib *acquire_blend_dib(INT width, INT height, struct blend_dib *temp)
++{
++    INT cache_width, cache_height;
++
++    if ((INT64)width * height >= BLEND_CACHE_MIN_PIXELS && !InterlockedCompareExchange(&blend_cache_busy, 1, 0))
++    {
++        if (width <= blend_cache.width && height <= blend_cache.height)
++            return &blend_cache;
++
++        cache_width = (max(width, blend_cache.width) + 63) & ~63;
++        cache_height = (max(height, blend_cache.height) + 63) & ~63;
++        if ((INT64)cache_width * cache_height <= BLEND_CACHE_MAX_PIXELS)
++        {
++            delete_blend_dib(&blend_cache);
++            if (create_blend_dib(&blend_cache, cache_width, cache_height))
++                return &blend_cache;
++        }
++
++        InterlockedExchange(&blend_cache_busy, 0);
++    }
++
++    return create_blend_dib(temp, width, height) ? temp : NULL;
++}
++
++static void release_blend_dib(struct blend_dib *dib)
++{
++    if (dib == &blend_cache)
++        InterlockedExchange(&blend_cache_busy, 0);
++    else
++        delete_blend_dib(dib);
++}
++
++void free_blend_cache(void)
++{
++    delete_blend_dib(&blend_cache);
++}
++
+ static GpStatus alpha_blend_hdc_pixels(GpGraphics *graphics, INT dst_x, INT dst_y,
+     const BYTE *src, INT src_width, INT src_height, INT src_stride, PixelFormat fmt)
+ {
+-    HDC hdc;
+-    HBITMAP hbitmap;
+-    BITMAPINFOHEADER bih;
+-    BYTE *temp_bits;
++    struct blend_dib temp, *dib;
++    INT stride;
+ 
+-    hdc = CreateCompatibleDC(0);
++    if (!(dib = acquire_blend_dib(src_width, src_height, &temp)))
++        return Ok;
+ 
+-    bih.biSize = sizeof(BITMAPINFOHEADER);
+-    bih.biWidth = src_width;
+-    bih.biHeight = -src_height;
+-    bih.biPlanes = 1;
+-    bih.biBitCount = 32;
+-    bih.biCompression = BI_RGB;
+-    bih.biSizeImage = 0;
+-    bih.biXPelsPerMeter = 0;
+-    bih.biYPelsPerMeter = 0;
+-    bih.biClrUsed = 0;
+-    bih.biClrImportant = 0;
+-
+-    hbitmap = CreateDIBSection(hdc, (BITMAPINFO*)&bih, DIB_RGB_COLORS,
+-        (void**)&temp_bits, NULL, 0);
+-
+-    if(!hbitmap || !temp_bits)
+-        goto done;
++    stride = dib->width * 4;
+ 
+     if (graphics->hdc &&
+          GetDeviceCaps(graphics->hdc, TECHNOLOGY) == DT_RASPRINTER &&
+          GetDeviceCaps(graphics->hdc, SHADEBLENDCAPS) == SB_NONE)
+-        blend_32bppARGB(src_width, src_height, temp_bits,
+-                        4 * src_width, src, src_stride);
++        blend_32bppARGB(src_width, src_height, dib->bits, stride, src, src_stride);
+     else if (fmt & PixelFormatPAlpha)
+     {
+         /* the source rows may be padded (src_stride > 4 * src_width) */
+         INT y;
+         for (y = 0; y < src_height; y++)
+-            memcpy(temp_bits + y * 4 * src_width, src + y * src_stride, src_width * 4);
++            memcpy(dib->bits + y * stride, src + y * src_stride, src_width * 4);
+     }
+     else
+-        convert_32bppARGB_to_32bppPARGB(src_width, src_height, temp_bits,
+-                                        4 * src_width, src, src_stride);
++        convert_32bppARGB_to_32bppPARGB(src_width, src_height, dib->bits, stride, src, src_stride);
+ 
+-    SelectObject(hdc, hbitmap);
+     gdi_alpha_blend(graphics, dst_x, dst_y, src_width, src_height,
+-                    hdc, 0, 0, src_width, src_height);
++                    dib->hdc, 0, 0, src_width, src_height);
+ 
+-    DeleteObject(hbitmap);
+-
+-done:
+-    DeleteDC(hdc);
++    release_blend_dib(dib);
+ 
+     return Ok;
+ }
