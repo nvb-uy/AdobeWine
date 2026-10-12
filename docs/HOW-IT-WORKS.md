@@ -44,3 +44,6 @@ The [development log](DEVLOG.md) has every step, including dead ends.
   memory; Windows tolerates it, so does AdobeWine (heap quarantine, patch 0032).
 - **Rendering**: Direct2D layers, masks and arc geometry; offscreen Vulkan surfaces for
   child windows; swapchain resizing.
+- **Speed**: Photoshop's Home screen is UXP drawn on the main thread with GDI+ (its
+  WebView2 processes are hidden helpers), so its scrolling depends on Wine's software
+  GDI+ fills, clip regions and alpha blends (patches 0089-0094).

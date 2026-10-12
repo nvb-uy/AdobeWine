@@ -101,7 +101,7 @@ fi
 # zero at launch on that build, so Photoshop alone reports Windows 10.
 wine winecfg /v win11 >/dev/null 2>&1
 wine reg add 'HKCU\Software\Wine\AppDefaults\Photoshop.exe' /v Version /d win10 /f >/dev/null
-# WebView2 (the Home screens) presents through a DirectComposition swapchain; only Wine's
+# WebView2 (UXP's web views; Photoshop's Home is GDI+) presents through a DirectComposition swapchain; only Wine's
 # own dxgi has composition swapchains (patches 0050, 0051), DXVK does not.
 wine reg add 'HKCU\Software\Wine\AppDefaults\msedgewebview2.exe\DllOverrides' /v dxgi /d builtin /f >/dev/null
 wine reg add 'HKCU\Software\Wine\AppDefaults\msedgewebview2.exe\DllOverrides' /v d3d11 /d builtin /f >/dev/null
