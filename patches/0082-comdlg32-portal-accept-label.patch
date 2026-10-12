@@ -1,0 +1,77 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] comdlg32: Pass the OK button label to the portal.
+
+The label set with SetOkButtonLabel, or the text of the Explorer dialog's OK button, becomes the portal's accept_label, so Place, Export and Save keep their button text.
+---
+diff --git a/dlls/comdlg32/filedlg.c b/dlls/comdlg32/filedlg.c
+--- a/dlls/comdlg32/filedlg.c
++++ b/dlls/comdlg32/filedlg.c
+@@ -2279,6 +2279,8 @@ static void filedlg_portal_show(HWND hwnd)
+ 
+     GetWindowTextW(hwnd, text, ARRAY_SIZE(text));
+     portal_utf8(params->title_utf8, sizeof(params->title_utf8), text);
++    if (GetDlgItemTextW(hwnd, IDOK, text, ARRAY_SIZE(text)))
++        portal_label(params->accept_label, text, 0);
+     if (COMDLG32_GetDisplayNameOf(info->ShellInfos.pidlAbsCurrent, path))
+         portal_unix_path(params->initial_dir_utf8, sizeof(params->initial_dir_utf8), path);
+ 
+diff --git a/dlls/comdlg32/itemdlg.c b/dlls/comdlg32/itemdlg.c
+--- a/dlls/comdlg32/itemdlg.c
++++ b/dlls/comdlg32/itemdlg.c
+@@ -2924,6 +2924,8 @@ static void portal_build_request(FileDialogImpl *This, struct portal_file_params
+ 
+     memset(params, 0, sizeof(*params));
+     portal_utf8(params->title_utf8, sizeof(params->title_utf8), This->custom_title);
++    if (This->custom_okbutton && *This->custom_okbutton)
++        portal_label(params->accept_label, This->custom_okbutton, 0);
+     if (folder && get_shellitem_filesys_path(folder, path, ARRAY_SIZE(path)))
+         portal_unix_path(params->initial_dir_utf8, sizeof(params->initial_dir_utf8), path);
+ 
+diff --git a/dlls/comdlg32/portal_dbus.c b/dlls/comdlg32/portal_dbus.c
+--- a/dlls/comdlg32/portal_dbus.c
++++ b/dlls/comdlg32/portal_dbus.c
+@@ -863,6 +863,7 @@ static NTSTATUS portal_call_and_wait(struct portal_context *ctx,
+                                       const char *method,
+                                       const char *parent_window,
+                                       const char *title_utf8,
++                                      const char *accept_label,
+                                       const char *initial_dir_utf8,
+                                       const char *initial_filename_utf8,
+                                       const char *current_file_unix,
+@@ -911,6 +912,7 @@ static NTSTATUS portal_call_and_wait(struct portal_context *ctx,
+     /* 1. handle_token */
+     snprintf(token, sizeof(token), "wine%u_%u", (UINT)getpid(), __sync_add_and_fetch(&token_seq, 1));
+     append_string_option(&options_dict, "handle_token", token);
++    if (accept_label && accept_label[0]) append_string_option(&options_dict, "accept_label", accept_label);
+ 
+     p_dbus_connection_add_filter(ctx->connection, portal_response_filter, ctx, NULL);
+     ctx->filter_added = TRUE;
+@@ -1132,7 +1134,7 @@ NTSTATUS CDECL portal_open_file(void *args)
+         return status;
+ 
+     status = portal_call_and_wait(&ctx, "OpenFile", params->parent_window,
+-                                  params->title_utf8[0] ? params->title_utf8 : NULL,
++                                  params->title_utf8[0] ? params->title_utf8 : NULL, params->accept_label,
+                                   params->initial_dir_utf8[0] ? params->initial_dir_utf8 : NULL,
+                                   NULL,
+                                   NULL,
+@@ -1192,7 +1194,7 @@ NTSTATUS CDECL portal_save_file(void *args)
+         return status;
+ 
+     status = portal_call_and_wait(&ctx, "SaveFile", params->parent_window,
+-                                  params->title_utf8[0] ? params->title_utf8 : NULL,
++                                  params->title_utf8[0] ? params->title_utf8 : NULL, params->accept_label,
+                                   params->initial_dir_utf8[0] ? params->initial_dir_utf8 : NULL,
+                                   params->initial_filename_utf8[0] ? params->initial_filename_utf8 : NULL,
+                                   params->current_file_unix[0] ? params->current_file_unix : NULL,
+diff --git a/dlls/comdlg32/unixlib.h b/dlls/comdlg32/unixlib.h
+--- a/dlls/comdlg32/unixlib.h
++++ b/dlls/comdlg32/unixlib.h
+@@ -49,6 +49,7 @@ struct portal_file_params
+ {
+     char parent_window[PORTAL_PARENT_MAX];
+     char title_utf8[PORTAL_STR_MAX];
++    char accept_label[PORTAL_CHOICE_LABEL_MAX];
+     char initial_dir_utf8[PORTAL_PATH_MAX];
+     char initial_filename_utf8[PORTAL_PATH_MAX];
+     char current_file_unix[PORTAL_PATH_MAX];
