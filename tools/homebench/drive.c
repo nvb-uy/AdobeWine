@@ -32,7 +32,7 @@ int main(int argc, char **argv)
         t0 = now_ms();
         if (wheel)
         {
-            int delta = ((i / 20) % 2) ? 120 : -120;
+            int delta = ((i / 4) % 2) ? 120 : -120;
             if (post) PostMessageA(h, WM_MOUSEWHEEL, MAKEWPARAM(0, delta), MAKELPARAM(pt.x, pt.y));
             else SendMessageTimeoutA(h, WM_MOUSEWHEEL, MAKEWPARAM(0, delta), MAKELPARAM(pt.x, pt.y), SMTO_NORMAL, 5000, &res);
         }
@@ -47,6 +47,8 @@ int main(int argc, char **argv)
         total += t0;
         if (t0 > worst) worst = t0;
         if (i == 0) printf("target %p\n", h);
+        printf("post %d\n", i);
+        fflush(stdout);
         Sleep(interval);
     }
     printf("%s n=%d wall=%.0fms handler_avg=%.2fms handler_max=%.1fms\n", argv[1], n, now_ms() - start, total / n, worst);

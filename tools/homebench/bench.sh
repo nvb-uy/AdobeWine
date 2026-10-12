@@ -4,7 +4,7 @@
 D=$(cd "$(dirname "$0")" && pwd)
 A="$D/../../bin/adobewine"
 mode=${1:-pwheel}; n=${2:-300}; iv=${3:-16}; runs=${4:-2}
-[ -f "$D/drive.exe" ] || x86_64-w64-mingw32-gcc -O2 -o "$D/drive.exe" "$D/drive.c" -lwinmm || exit 1
+[ "$D/drive.exe" -nt "$D/drive.c" ] || x86_64-w64-mingw32-gcc -O2 -o "$D/drive.exe" "$D/drive.c" -lwinmm || exit 1
 for i in $(seq 90); do
     XW=$(xwininfo -root -tree | awk '/"Adobe Photoshop 2026"/{print $1; exit}')
     [ -n "$XW" ] && break
@@ -22,10 +22,11 @@ fi
 dur=${DUR:-$(( n * (iv + 2) / 1000 + 4 ))}
 for r in $(seq "$runs"); do
     out=$(mktemp -d)
-    python3 -I "$D/damage.py" "$XW" "$dur" > "$out/damage" &
+    : > "$out/posts"
+    python3 -I "$D/damage.py" "$XW" "$dur" "$out/posts" > "$out/damage" &
     python3 -I "$D/tcpu.py" "$PSPID" $((dur - 1)) > "$out/cpu" &
     sleep 0.3
-    "$A" run "$D/drive.exe" "$mode" "$n" "$iv" $args 2>/dev/null | grep -v '^target'
+    "$A" run "$D/drive.exe" "$mode" "$n" "$iv" $args 2>/dev/null | python3 -I "$D/damage.py" stamp "$out/posts" | grep -v '^target'
     wait
     cat "$out/damage"
     head -4 "$out/cpu"
