@@ -111,3 +111,4 @@ to WineHQ; help with that is very welcome.
 | 0101 | gdiplus | Alpha blends to a device context reuse one DIB section instead of creating one per call (fillbench home frame 34.2 to 33.5 ms, page faults 20.6k to 13.8k a frame) | nvb-uy |
 | 0102 | gdiplus | Antialiased fills to a device context are drawn straight into the blend DIB section instead of a zeroed buffer that was then copied (home frame to 30.9 ms, 7.3k page faults) | nvb-uy |
 | 0103 | gdiplus | Downscaled bitmap draws read only the source rows that are sampled (a 1200x1200 thumbnail drawn at 41x41 converted every row; home frame to 27 ms, 3.7k page faults; tests/gdiplus/scaledraw.c output unchanged) | nvb-uy |
+| 0104 | gdiplus | Horizontal and vertical linear gradient fills compute one row or one value per row (6 gradient fills 5.9 to 1.8 ms; home frame 34.2 to 22.4 ms over 0101-0104; tests/gdiplus/gradfill.c output unchanged) | nvb-uy |

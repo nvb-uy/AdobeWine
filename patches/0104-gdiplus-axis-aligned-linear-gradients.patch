@@ -1,0 +1,35 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] gdiplus: Compute axis-aligned linear gradient fills once per row or column.
+
+A linear gradient that only changes along x gives every row the same colors, and one that only changes along y gives every pixel in a row the same color, so compute those once and copy them. Photoshop's Home screen fills large rectangles with vertical gradients.
+---
+diff --git a/dlls/gdiplus/graphics.c b/dlls/gdiplus/graphics.c
+--- a/dlls/gdiplus/graphics.c
++++ b/dlls/gdiplus/graphics.c
+@@ -1577,11 +1577,25 @@ static GpStatus brush_fill_pixels(GpGraphics *graphics, GpBrush *brush,
+ 
+             for (y=0; y<fill_area->Height; y++)
+             {
++                DWORD *row = argb_pixels + y*cdwStride;
++
++                if (y && !y_delta)
++                {
++                    memcpy(row, argb_pixels, fill_area->Width * sizeof(ARGB));
++                    continue;
++                }
++
+                 for (x=0; x<fill_area->Width; x++)
+                 {
+                     REAL pos = draw_points[0].X + x * x_delta + y * y_delta;
+ 
+-                    argb_pixels[x + y*cdwStride] = blend_line_gradient(fill, pos);
++                    row[x] = blend_line_gradient(fill, pos);
++
++                    if (!x_delta)
++                    {
++                        for (x++; x<fill_area->Width; x++)
++                            row[x] = row[0];
++                    }
+                 }
+             }
+         }
