@@ -26,21 +26,24 @@ ls -d "$DEPS"/dxvk-*/ >/dev/null 2>&1 || "$ADOBEWINE_SRC/scripts/fetch-deps.sh"
 SYS="$WINEPREFIX/drive_c/windows/system32"
 SYS32="$WINEPREFIX/drive_c/windows/syswow64"
 
-[ -f "$WINEPREFIX/system.reg" ] || wineboot -i
-wineserver -w
-
 # Browser engine (wine-gecko) and .NET replacement (wine-mono): the Creative Cloud
 # installer's pages stay on "Loading..." without gecko.
-SHARE="$ADOBEWINE_HOME/cache"
-mkdir -p "$SHARE/gecko" "$SHARE/mono"
-for a in x86 x86_64; do
-  f="$SHARE/gecko/wine-gecko-2.47.4-$a.msi"
-  [ -f "$f" ] || curl -fsSL -o "$f" "https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-$a.msi"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/wine"
+mkdir -p "$CACHE"
+for a in "gecko 2.47.4 x86" "gecko 2.47.4 x86_64" "mono 11.3.0 x86"; do
+  read -r kind ver arch <<< "$a"
+  f="wine-$kind-$ver-$arch.msi"
+  [ -f "$CACHE/$f" ] && continue
+  if [ -f "$ADOBEWINE_HOME/cache/$kind/$f" ]; then mv "$ADOBEWINE_HOME/cache/$kind/$f" "$CACHE/$f"; continue; fi
+  curl -fsSL -o "$CACHE/$f.part" "https://dl.winehq.org/wine/wine-$kind/$ver/$f"
+  mv "$CACHE/$f.part" "$CACHE/$f"
 done
-[ -d "$SYS/gecko/2.47.4" ] || { wine msiexec /i "$SHARE/gecko/wine-gecko-2.47.4-x86_64.msi" /qn; wine msiexec /i "$SHARE/gecko/wine-gecko-2.47.4-x86.msi" /qn; }
-f="$SHARE/mono/wine-mono-11.3.0-x86.msi"
-[ -f "$f" ] || curl -fsSL -o "$f" "https://dl.winehq.org/wine/wine-mono/11.3.0/wine-mono-11.3.0-x86.msi"
-[ -d "$WINEPREFIX/drive_c/windows/mono" ] || wine msiexec /i "$f" /qn
+rmdir "$ADOBEWINE_HOME/cache/gecko" "$ADOBEWINE_HOME/cache/mono" "$ADOBEWINE_HOME/cache" 2>/dev/null || true
+
+[ -f "$WINEPREFIX/system.reg" ] || wineboot -i
+wineserver -w
+[ -d "$SYS/gecko/2.47.4" ] || { wine msiexec /i "$CACHE/wine-gecko-2.47.4-x86_64.msi" /qn; wine msiexec /i "$CACHE/wine-gecko-2.47.4-x86.msi" /qn; }
+[ -d "$WINEPREFIX/drive_c/windows/mono" ] || wine msiexec /i "$CACHE/wine-mono-11.3.0-x86.msi" /qn
 
 # Microsoft's shader compiler (Audition compiles HLSL at run time) and the core fonts
 # (the Creative Cloud renderer crashes without real Windows fonts).
