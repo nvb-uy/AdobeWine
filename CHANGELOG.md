@@ -26,6 +26,7 @@ PhotoshopWine: this branch is now a fork of AdobeWine tailored to Photoshop.
   in a benchmark (207 ms to 23 ms per frame) and the scroll frame rate in Photoshop is about 3 times
   higher (5.3 to about 16 fps, median frame time 181 to 41 ms). Fill and scroll benchmarks added.
 - Shader cache files are no longer left in the folder Photoshop was started from.
+- Message box text and dialog button labels are no longer cut off at the right edge (patch 0099).
 
 ## 0.2.2 - 2026-10-11
 

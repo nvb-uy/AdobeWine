@@ -1,0 +1,72 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] win32u: Take glyph advances from bi-level hinting in every glyph format.
+
+FreeType's v40 interpreter applies horizontal hinting and the hdmx widths only for FT_LOAD_TARGET_MONO, so GGO_METRICS, loaded for the normal target, returned other advances than GGO_BITMAP for hinted fonts like Tahoma. Text that is not antialiased, such as Tahoma below 17 ppem whose gasp table turns grayscale off, was drawn wider or narrower than GetTextExtentPoint32 and DrawText measured it, and message boxes cut off their last letters. Windows uses the bi-level widths in every rendering mode, so load GGO_METRICS for the mono target and give the other formats the same advance.
+---
+diff --git a/dlls/win32u/freetype.c b/dlls/win32u/freetype.c
+--- a/dlls/win32u/freetype.c
++++ b/dlls/win32u/freetype.c
+@@ -3069,6 +3069,7 @@ static FT_Int get_load_flags( UINT format )
+ 
+     switch (format & ~GGO_GLYPH_INDEX)
+     {
++    case GGO_METRICS:
+     case GGO_BITMAP:
+         load_flags |= FT_LOAD_TARGET_MONO;
+         break;
+@@ -3091,6 +3092,16 @@ static FT_Int get_load_flags( UINT format )
+     return load_flags | FT_LOAD_NO_AUTOHINT;
+ }
+ 
++static FT_Error load_glyph( FT_Face ft_face, UINT glyph, FT_Int load_flags )
++{
++    FT_Error err;
++
++    if (load_flags & FT_LOAD_NO_HINTING) return pFT_Load_Glyph( ft_face, glyph, load_flags );
++    if (!(err = pFT_Load_Glyph( ft_face, glyph, load_flags | FT_LOAD_PEDANTIC ))) return 0;
++    WARN( "Failed to load glyph %#x, retrying without hinting. Error %#x.\n", glyph, err );
++    return pFT_Load_Glyph( ft_face, glyph, load_flags | FT_LOAD_NO_HINTING );
++}
++
+ /*************************************************************
+  * freetype_get_glyph_outline
+  */
+@@ -3105,6 +3116,7 @@ static UINT freetype_get_glyph_outline( struct gdi_font *font, UINT glyph, UINT
+     FT_BBox bbox;
+     FT_Int load_flags = get_load_flags(format);
+     FT_Matrix transform_matrices[3], *matrices = NULL;
++    FT_Pos advance = -1;
+     BOOL vertical_metrics;
+ 
+     TRACE("%p, %04x, %08x, %p, %08x, %p, %p\n", font, glyph, format, lpgm, buflen, buf, lpmat);
+@@ -3122,20 +3134,22 @@ static UINT freetype_get_glyph_outline( struct gdi_font *font, UINT glyph, UINT
+     if (matrices || format != GGO_BITMAP) load_flags |= FT_LOAD_NO_BITMAP;
+     if (vertical_metrics) load_flags |= FT_LOAD_VERTICAL_LAYOUT;
+ 
+-    err = pFT_Load_Glyph(ft_face, glyph, load_flags & FT_LOAD_NO_HINTING ? load_flags : load_flags | FT_LOAD_PEDANTIC);
+-    if (err && !(load_flags & FT_LOAD_NO_HINTING))
+-    {
+-        WARN("Failed to load glyph %#x, retrying without hinting. Error %#x.\n", glyph, err);
+-        load_flags |= FT_LOAD_NO_HINTING;
+-        err = pFT_Load_Glyph(ft_face, glyph, load_flags);
+-    }
++    if (!(load_flags & FT_LOAD_NO_HINTING) && FT_LOAD_TARGET_MODE( load_flags ) != FT_RENDER_MODE_MONO &&
++        !load_glyph( ft_face, glyph, get_load_flags( GGO_METRICS ) | FT_LOAD_NO_BITMAP | (load_flags & FT_LOAD_VERTICAL_LAYOUT) ))
++        advance = vertical_metrics ? ft_face->glyph->metrics.vertAdvance : ft_face->glyph->metrics.horiAdvance;
+ 
+-    if(err) {
++    if ((err = load_glyph( ft_face, glyph, load_flags )))
++    {
+         WARN("Failed to load glyph %#x, error %#x.\n", glyph, err);
+         return GDI_ERROR;
+     }
+ 
+     metrics = ft_face->glyph->metrics;
++    if (advance >= 0)
++    {
++        if (vertical_metrics) metrics.vertAdvance = advance;
++        else metrics.horiAdvance = advance;
++    }
+     if(font->fake_bold) {
+         if (!get_bold_glyph_outline(ft_face->glyph, font->ppem, &metrics) && metrics.width)
+             metrics.width += 1 << 6;
