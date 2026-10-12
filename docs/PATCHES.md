@@ -84,3 +84,4 @@ to WineHQ; help with that is very welcome.
 | 0085 | wineboot | No "configuration is being updated" window while the prefix is updated | nvb-uy |
 | 0086 | user32 | Windows without an icon get the executable's icon instead of the Wine logo | nvb-uy |
 | 0087 | win32u | `Decorated=owned` in the X11 Driver key lets the window manager decorate owned windows (dialogs) only | nvb-uy |
+| 0088 | explorer | Systray icon windows are named after their tooltip, so XEmbed hosts like xembedsniproxy can show a name | nvb-uy |

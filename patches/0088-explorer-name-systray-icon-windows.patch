@@ -1,0 +1,16 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] explorer: Name systray icon windows after their tooltip.
+
+XEmbed tray hosts such as xembedsniproxy only know the window name of an embedded icon, so every Wine tray icon showed up without a name. Use the tooltip text as the window title.
+---
+diff --git a/programs/explorer/systray.c b/programs/explorer/systray.c
+--- a/programs/explorer/systray.c
++++ b/programs/explorer/systray.c
+@@ -724,6 +724,7 @@ static BOOL modify_icon( struct icon *icon, NOTIFYICONDATAW *nid )
+     {
+         lstrcpynW( icon->tiptext, nid->szTip, ARRAY_SIZE( icon->tiptext ));
+         update_tooltip_text( icon );
++        SetWindowTextW( icon->window, icon->tiptext );
+     }
+     if (nid->uFlags & NIF_INFO && nid->cbSize >= NOTIFYICONDATAA_V2_SIZE)
+     {
