@@ -21,8 +21,9 @@ export WINEARCH=win64
 export WINEDEBUG="${WINEDEBUG:--all,+err}"
 export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-winemenubuilder.exe=d}"
 export FONTCONFIG_FILE="${FONTCONFIG_FILE:-$ADOBEWINE_SRC/config/fonts.conf}"
-mkdir -p "$ADOBEWINE_HOME/logs"
+mkdir -p "$ADOBEWINE_HOME/logs" "$ADOBEWINE_HOME/cache/shaders"
 export DXVK_LOG_PATH="$ADOBEWINE_HOME/logs"
+export VKD3D_SHADER_CACHE_PATH="${VKD3D_SHADER_CACHE_PATH:-$ADOBEWINE_HOME/cache/shaders}"
 
 # Hybrid laptops (Intel/AMD iGPU + NVIDIA dGPU): render on the NVIDIA GPU.
 # Set ADOBEWINE_NVIDIA_OFFLOAD=0 to turn this off, =1 to force it.
