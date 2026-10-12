@@ -111,6 +111,7 @@ wine reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d x11 /f >/dev/null
 wine reg add 'HKCU\Software\Wine\X11 Driver' /v Decorated /d N /f >/dev/null
 wine reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f >/dev/null
 wine reg add 'HKCU\Software\Wine\Explorer' /v ShowSystray /t REG_DWORD /d 0 /f >/dev/null
+wine reg add 'HKCU\Software\Wine\DllOverrides' /v winemenubuilder.exe /d '' /f >/dev/null
 if [ -n "$DPI" ]; then
   conf="${XDG_CONFIG_HOME:-$HOME/.config}/adobewine/config"
   mkdir -p "${conf%/*}"; touch "$conf"
