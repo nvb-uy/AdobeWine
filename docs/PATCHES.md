@@ -85,6 +85,7 @@ to WineHQ; help with that is very welcome.
 | 0073 | comdlg32 | Portal dialogs wait on a worker thread while the app keeps dispatching messages, modal to the owner, which is passed as the parent window | nvb-uy |
 | 0074 | comdlg32 | Portal requests listen for their response before sending, give up when the portal goes away, and the FileChooser version is probed first | nvb-uy |
 | 0075 | comdlg32 | Portal file types match regardless of case (`*.PSD` shows .psd files) and the type picked in the desktop dialog is returned | nvb-uy |
+| 0076 | comdlg32 | Only existing folders and files are sent to the portal, resolved (~/Documents rather than the prefix's link to it) | nvb-uy |
 | 0085 | wineboot | No "configuration is being updated" window while the prefix is updated | nvb-uy |
 | 0086 | user32 | Windows without an icon get the executable's icon instead of the Wine logo | nvb-uy |
 | 0087 | win32u | `Decorated=owned` in the X11 Driver key lets the window manager decorate owned windows (dialogs) only | nvb-uy |

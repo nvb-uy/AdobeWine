@@ -1,0 +1,93 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] comdlg32: Send only existing canonical paths to the portal.
+
+The folder and file of the request are resolved with realpath(), so the desktop dialog opens in ~/Documents rather than in the matching folder of the Wine prefix, and a folder that does not exist is left to the portal's default instead of failing the request.
+---
+diff --git a/dlls/comdlg32/portal_dbus.c b/dlls/comdlg32/portal_dbus.c
+--- a/dlls/comdlg32/portal_dbus.c
++++ b/dlls/comdlg32/portal_dbus.c
+@@ -26,6 +26,7 @@
+ #include <stdarg.h>
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <limits.h>
+ #include <unistd.h>
+ #include <time.h>
+ #include <dlfcn.h>
+@@ -379,6 +380,28 @@ static void append_string_option(DBusMessageIter *options_dict, const char *key,
+     p_dbus_message_iter_close_container(options_dict, &entry);
+ }
+ 
++static void append_path_option(DBusMessageIter *options_dict, const char *key, const char *path)
++{
++    DBusMessageIter entry, variant, array;
++    char real[PATH_MAX];
++    const unsigned char *bytes = (const unsigned char *)real;
++
++    if (!path || !path[0] || !realpath(path, real))
++    {
++        if (path && path[0]) TRACE("not sending %s %s\n", key, debugstr_a(path));
++        return;
++    }
++
++    p_dbus_message_iter_open_container(options_dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
++    p_dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &key);
++    p_dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT, "ay", &variant);
++    p_dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "y", &array);
++    p_dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE, &bytes, strlen(real) + 1);
++    p_dbus_message_iter_close_container(&variant, &array);
++    p_dbus_message_iter_close_container(&entry, &variant);
++    p_dbus_message_iter_close_container(options_dict, &entry);
++}
++
+ /* Append "choices" option: a(ssa(ss)s) */
+ static void append_choices_option(DBusMessageIter *options_dict, const struct portal_choices *choices)
+ {
+@@ -910,22 +933,7 @@ static NTSTATUS portal_call_and_wait(struct portal_context *ctx,
+     }
+ 
+ 	/* 3. Directory (current_folder expects 'ay' - array of bytes) */
+-		if (initial_dir_utf8 && initial_dir_utf8[0])
+-		{
+-			DBusMessageIter entry, variant, array;
+-			const char *folder_key = "current_folder";
+-	        int len = strlen(initial_dir_utf8) + 1;
+-	        const unsigned char *bytes = (const unsigned char *)initial_dir_utf8;
+-
+-			p_dbus_message_iter_open_container(&options_dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
+-			p_dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &folder_key);
+-			p_dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT, "ay", &variant);
+-			p_dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "y", &array);
+-			p_dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE, &bytes, len);
+-			p_dbus_message_iter_close_container(&variant, &array);
+-			p_dbus_message_iter_close_container(&entry, &variant);
+-			p_dbus_message_iter_close_container(&options_dict, &entry);
+-		}
++    append_path_option(&options_dict, "current_folder", initial_dir_utf8);
+ 
+ 	/* 4. Initial filename (Save dialog only) */
+ 	if (initial_filename_utf8 && strcmp(method, "SaveFile") == 0)
+@@ -943,22 +951,7 @@ static NTSTATUS portal_call_and_wait(struct portal_context *ctx,
+ 	}
+ 
+     /* 5. Current file (Save dialog only) */
+-	    if (current_file_unix && current_file_unix[0] && strcmp(method, "SaveFile") == 0)
+-	    {
+-	        DBusMessageIter entry, variant, array;
+-	        const char *file_key = "current_file";
+-	        int len = strlen(current_file_unix) + 1;
+-	        const unsigned char *bytes = (const unsigned char *)current_file_unix;
+-
+-	        p_dbus_message_iter_open_container(&options_dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
+-	        p_dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &file_key);
+-	        p_dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT, "ay", &variant);
+-	        p_dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "y", &array);
+-	        p_dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE, &bytes, len);
+-	        p_dbus_message_iter_close_container(&variant, &array);
+-	        p_dbus_message_iter_close_container(&entry, &variant);
+-	        p_dbus_message_iter_close_container(&options_dict, &entry);
+-	    }
++    if (!strcmp(method, "SaveFile")) append_path_option(&options_dict, "current_file", current_file_unix);
+ 
+ 	/* 6. Filters */
+ 	if (filters_blob && filters_len && filter_count)
