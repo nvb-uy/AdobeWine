@@ -20,6 +20,7 @@ for p in "$ADOBEWINE_SRC"/patches/*.patch; do
   git apply --whitespace=nowarn "$p" || { echo "patch failed: $(basename "$p")" >&2; exit 1; }
 done
 echo "applied $(ls "$ADOBEWINE_SRC"/patches/*.patch | wc -l) patches"
+python3 -I "$ADOBEWINE_SRC/scripts/make-dark-theme.py" "$SRC"
 
 # OpenCL headers are not packaged everywhere; use Khronos' copy.
 [ -d "$ADOBEWINE_HOME/src/OpenCL-Headers" ] ||

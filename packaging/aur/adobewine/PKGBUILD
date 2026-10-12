@@ -15,7 +15,7 @@ depends=(
 )
 makedepends=(
   git ffmpeg libcups libgphoto2 libxcomposite libxinerama libxxf86vm mesa mingw-w64-gcc
-  opencl-headers opencl-icd-loader pcsclite perl samba sane sdl2 unixodbc v4l-utils
+  opencl-headers opencl-icd-loader pcsclite perl python samba sane sdl2 unixodbc v4l-utils
   vulkan-headers
 )
 optdepends=(
@@ -38,6 +38,7 @@ prepare() {
   for p in "$srcdir/AdobeWine-${pkgver}"/patches/*.patch; do
     patch -Np1 -i "$p" >/dev/null || { echo "patch failed: ${p##*/}"; return 1; }
   done
+  python3 -I "$srcdir/AdobeWine-${pkgver}/scripts/make-dark-theme.py" .
   rm -rf "$srcdir/build"; mkdir "$srcdir/build"
 }
 
