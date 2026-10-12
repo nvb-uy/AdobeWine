@@ -1,0 +1,61 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] win32u: Add an option to decorate owned windows only.
+
+Setting the X11 Driver Decorated value to "owned" lets the window manager decorate windows that have an owner, such as dialogs, while top-level windows without an owner keep drawing their own frame. This suits applications that draw a custom main window but use regular dialogs.
+---
+diff --git a/dlls/win32u/sysparams.c b/dlls/win32u/sysparams.c
+--- a/dlls/win32u/sysparams.c
++++ b/dlls/win32u/sysparams.c
+@@ -166,7 +166,7 @@ static UINT64 monitor_update_serial;
+ static pthread_mutex_t display_lock = PTHREAD_MUTEX_INITIALIZER;
+ 
+ BOOL emulate_modeset = FALSE;
+-BOOL decorated_mode = TRUE;
++enum decorated_mode decorated_mode = DECORATED_ALL;
+ UINT64 thunk_lock_callback = 0;
+ 
+ #define VIRTUAL_HMONITOR ((HMONITOR)(UINT_PTR)(0x10000 + 1))
+@@ -6079,7 +6079,10 @@ void sysparams_init(void)
+     if (!get_config_key( hkey, appkey, "GrabFullscreen", buffer, sizeof(buffer) ))
+         grab_fullscreen = IS_OPTION_TRUE( buffer[0] );
+     if (!get_config_key( hkey, appkey, "Decorated", buffer, sizeof(buffer) ))
+-        decorated_mode = IS_OPTION_TRUE( buffer[0] );
++    {
++        if (buffer[0] == 'o' || buffer[0] == 'O') decorated_mode = DECORATED_OWNED;
++        else decorated_mode = IS_OPTION_TRUE( buffer[0] ) ? DECORATED_ALL : DECORATED_NONE;
++    }
+     if (!get_config_key( hkey, appkey, "EmulateModeset", buffer, sizeof(buffer) ))
+         emulate_modeset = IS_OPTION_TRUE( buffer[0] );
+ 
+diff --git a/dlls/win32u/win32u_private.h b/dlls/win32u/win32u_private.h
+--- a/dlls/win32u/win32u_private.h
++++ b/dlls/win32u/win32u_private.h
+@@ -161,7 +161,14 @@ extern void track_scroll_bar( HWND hwnd, int scrollbar, POINT pt );
+ /* sysparams.c */
+ extern UINT system_dpi;
+ extern BOOL emulate_modeset;
+-extern BOOL decorated_mode;
++enum decorated_mode
++{
++    DECORATED_NONE,
++    DECORATED_ALL,
++    DECORATED_OWNED,
++};
++
++extern enum decorated_mode decorated_mode;
+ extern UINT64 thunk_lock_callback;
+ extern HBRUSH get_55aa_brush(void);
+ extern DWORD get_dialog_base_units(void);
+diff --git a/dlls/win32u/window.c b/dlls/win32u/window.c
+--- a/dlls/win32u/window.c
++++ b/dlls/win32u/window.c
+@@ -2175,7 +2175,8 @@ static RECT get_visible_rect( HWND hwnd, BOOL shaped, UINT style, UINT ex_style,
+     RECT visible_rect, rect = {0};
+ 
+     if (get_present_rect( hwnd, &rect, get_thread_dpi() )) return rect;
+-    if (IsRectEmpty( &rects->window ) || EqualRect( &rects->window, &rects->client ) || shaped || !decorated_mode) return rects->window;
++    if (IsRectEmpty( &rects->window ) || EqualRect( &rects->window, &rects->client ) || shaped || decorated_mode == DECORATED_NONE) return rects->window;
++    if (decorated_mode == DECORATED_OWNED && !get_window_relative( hwnd, GW_OWNER )) return rects->window;
+     if (!user_driver->pGetWindowStyleMasks( hwnd, style, ex_style, &style_mask, &ex_style_mask )) return rects->window;
+     if (!adjust_window_rect( &rect, style & style_mask, FALSE, ex_style & ex_style_mask, round_dpi( dpi ) )) return rects->window;
+ 
