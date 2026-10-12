@@ -1,0 +1,39 @@
+From: nvb-uy <105564560+nvb-uy@users.noreply.github.com>
+Subject: [PATCH] gdiplus: Convert runs of equal pixels to premultiplied alpha once.
+
+Brush fills hand the same color over and over, so reuse the last converted pixel while the source repeats, and copy opaque pixels as they are.
+---
+diff --git a/dlls/gdiplus/gdiplus.c b/dlls/gdiplus/gdiplus.c
+--- a/dlls/gdiplus/gdiplus.c
++++ b/dlls/gdiplus/gdiplus.c
+@@ -450,13 +450,24 @@ void convert_32bppARGB_to_32bppPARGB(UINT width, UINT height,
+     {
+         const BYTE *src=src_bits+y*src_stride;
+         BYTE *dst=dst_bits+y*dst_stride;
+-        for (x=0; x<width; x++)
++        DWORD last_src = 0, last_dst = 0;
++        for (x=0; x<width; x++, src += 4, dst += 4)
+         {
+-            BYTE alpha=src[3];
+-            *dst++ = (*src++ * alpha + 127) / 255;
+-            *dst++ = (*src++ * alpha + 127) / 255;
+-            *dst++ = (*src++ * alpha + 127) / 255;
+-            *dst++ = *src++;
++            DWORD color = src[0] | src[1] << 8 | src[2] << 16 | (DWORD)src[3] << 24;
++            if (color != last_src)
++            {
++                BYTE alpha = src[3];
++                last_src = color;
++                if (alpha == 255)
++                    last_dst = color;
++                else
++                    last_dst = (src[0] * alpha + 127) / 255 | ((src[1] * alpha + 127) / 255) << 8 |
++                               ((src[2] * alpha + 127) / 255) << 16 | (DWORD)alpha << 24;
++            }
++            dst[0] = last_dst;
++            dst[1] = last_dst >> 8;
++            dst[2] = last_dst >> 16;
++            dst[3] = last_dst >> 24;
+         }
+     }
+ }
