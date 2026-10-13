@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-10-12
 
 PhotoshopWine: this branch is now a fork of AdobeWine tailored to Photoshop.
 
@@ -35,7 +35,9 @@ PhotoshopWine: this branch is now a fork of AdobeWine tailored to Photoshop.
 - One-line installer (`install.sh`) and `photoshopwine update`; reports go to the PhotoshopWine
   repository.
 
-The releases below are AdobeWine releases, from before the fork.
+## Before the fork
+
+The releases below are AdobeWine releases.
 
 ## 0.2.2 - 2026-10-11
 
