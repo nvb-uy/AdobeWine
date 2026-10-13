@@ -19,7 +19,7 @@ int main(void)
 {
     static const struct { D3D_FEATURE_LEVEL level; const char *name; } levels[] =
     {
-        {D3D_FEATURE_LEVEL_12_2, "12_2"}, {D3D_FEATURE_LEVEL_12_1, "12_1"},
+        {(D3D_FEATURE_LEVEL)0xc200, "12_2"}, {D3D_FEATURE_LEVEL_12_1, "12_1"},
         {D3D_FEATURE_LEVEL_12_0, "12_0"}, {D3D_FEATURE_LEVEL_11_1, "11_1"},
         {D3D_FEATURE_LEVEL_11_0, "11_0"},
     };
