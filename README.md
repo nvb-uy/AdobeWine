@@ -1,121 +1,49 @@
-# AdobeWine
+# PhotoshopWine
 
-**Adobe Creative Cloud apps on Linux, through a patched Wine.**
+An unofficial project to run Adobe Photoshop on Linux, installed and signed in through Adobe's own Creative Cloud, with as much compatibility as possible.
 
-AdobeWine is Wine 11.18 plus 61 patches. With it, Adobe's apps install through Creative
-Cloud, sign in with a normal Adobe account and run with GPU acceleration. Photoshop,
-Illustrator, Premiere Pro, Audition, Media Encoder and the Creative Cloud desktop app work
-for everyday use; After Effects renders real projects now but is less tested; InDesign and Bridge are next.
+**Disclaimer:** PhotoshopWine makes Photoshop work on Linux. It does not include or download any Adobe software, and it does not crack, bypass or modify Adobe licensing: you need your own Creative Cloud subscription. No support will be given to anyone trying to crack or pirate it.
 
-> **Status: early testing (0.2.2).** Built and measured on one reference machine (Arch-based,
-> NVIDIA RTX 4070 Laptop). Community reports so far: Linux Mint (RTX 4060), Arch/Omarchy
-> (RTX 4090) and Gentoo (Intel UHD 620). **No AMD report yet.** Please
-> [try it and report back](CONTRIBUTING.md), good or bad.
+PhotoshopWine is a fork of [AdobeWine](https://github.com/le-birnes/AdobeWine) that builds on its patches and focuses only on Photoshop. You can still install other Adobe apps through Creative Cloud, but only Photoshop is officially supported here. For other Adobe software we recommend AdobeWine.
 
-| App (2026 versions) | State on the reference machine |
-|---|---|
-| Creative Cloud desktop 6.10 | Sign in, Home, Apps (install, update, open, uninstall), Fonts, Files. The web installer works since 0.2.0 |
-| Photoshop 27.10 | Home, New, layers, masks, type, filters, Remove Background, Generative Fill, export. **All 75 filters and adjustments tested give the same output as on Windows** |
-| Illustrator 30.8 | Home, New, shapes, pen, type, effects, Pathfinder, Image Trace, save/export. **107 of 139 reference outputs match Windows**, the rest not compared yet |
-| Premiere Pro 26.5 | Import, timeline editing, Lumetri, titles, playback, NVENC export; HEVC export 5-10% faster than Windows after correcting for the hardware |
-| Media Encoder 26.5 | Queue, presets, CUDA renderer, NVENC/NVDEC export |
-| Audition 26.5 | Recording, multitrack, effects, noise reduction, mixdown, video track |
-| After Effects 26.5 | Opens projects, scripting, keyframes, relinks moved footage; **renders** (since 0.2.2): a real 300-layer caption comp matches the Windows render (42.8-68.6 dB PSNR on 8 checked frames), 88 s vs 57 s on Windows. Less tested than the others |
-| InDesign 2026 | Installs; not tested yet |
-| Bridge | Opens; not tested yet |
+## The goal
 
-How it is checked: a Windows machine lists every function of each app and saves a reference
-output for each; the same steps run under AdobeWine and the outputs are compared by pixels,
-audio samples or file contents, not by eye. So far 4705 functions are known and 241 tested
-(the 10-11 everyday functions per app, plus the full Photoshop filter and Illustrator effect
-sets). Where this is going: [docs/ROADMAP.md](docs/ROADMAP.md). Details:
-[docs/STATUS.md](docs/STATUS.md).
+With PhotoshopWine you get a near-native experience with the latest Photoshop versions.
 
-### What's new since 0.1.0
-- **0.2.0:** the Creative Cloud web installer no longer shows a blank white window (cause found
-  by NickPittas); Photoshop finds the GPU on Intel graphics whose driver offers only feature level
-  11_x, Segoe UI without Windows fonts, newest-release launching, menu icons and a Gentoo guide
-  (all switch87); file dialogs through your desktop's own picker as an experiment
-  (`WINE_FORCE_PORTAL=1`, ported from NickPittas' AE4Linux and Wine MR 10060).
-- **0.2.1:** two patches revised so Wine's own test suite passes again (winhttp connection reuse,
-  mshtml script loading); `adobewine aftereffects`; the launcher notices an app that closed but
-  did not exit and ends it, instead of silently opening nothing.
-- **0.2.2:** After Effects renders (a crash in Wine's Direct2D killed its main thread when a comp was
-  added to the Render Queue); Illustrator's PSD/SVG exports use Myriad Pro like on Windows; the apps
-  follow your desktop's scale on HiDPI screens; the desktop file picker shows After Effects' "Format:"
-  label. Full list: [CHANGELOG.md](CHANGELOG.md).
+- GPU acceleration, including local ML models (100%, currently only tested with NVIDIA)
+- All tools working properly (100%)
+- A design consistent with your desktop environment instead of Wine's Windows-style dialogs (80%, most of the UI works, tested with KDE)
+- Performance close to Windows or better¹ (80%, about 200% over AdobeWine on NVIDIA 580 drivers, almost native performance)
+- Visual improvements: antialiasing and text issues fixed² (100%, native-like look achieved)
 
-### Known gaps
-- Premiere's Import and Export modes draw black (Edit mode, Home and Learn work); export through Media Encoder meanwhile.
-- Only NVIDIA is tested; on AMD and Intel the CUDA features (Mercury GPU, NVENC) are not available.
-
-## Why this exists
-
-I'm not a Wine developer. I needed Adobe's apps for my work and didn't want to keep Windows
-just for them, so I built this for my own laptop, with a lot of help from Claude, an AI
-coding assistant. I'm sharing it because many people want to get off both Windows and
-macOS, keep working with Adobe, and still tinker with their own machines. It has only been
-tested on one machine so far. Your reports, fixes and criticism are what will make it work
-for everyone else.
-
-## What it is and what it is not
-
-- It **is** a Wine build: open-source patches on top of upstream Wine (LGPL-2.1-or-later),
-  plus scripts that set up a Wine prefix with DXVK, vkd3d-proton and nvidia-libs.
-- It **does not** include or download any Adobe software. You install Adobe's apps yourself
-  with Adobe's own Creative Cloud installer.
-- It **does not** crack, bypass or modify Adobe licensing. You need your own Creative
-  Cloud subscription and you sign in normally.
-- It is **not affiliated with, endorsed by or supported by Adobe**. "Adobe", "Photoshop",
-  "Illustrator", "Premiere Pro", "Audition" and "Creative Cloud" are trademarks of Adobe
-  Inc., used here only to say which programs this Wine build is meant to run.
+¹ Some of these optimizations were submitted to AdobeWine, but others are Photoshop-specific and run better on PhotoshopWine.
+² The antialiasing and text fixes were submitted to AdobeWine.
 
 ## Install
 
-- **Arch Linux and derivatives (CachyOS, EndeavourOS, Manjaro, Garuda):** the AUR packages
-  `adobewine` / `adobewine-bin` are being submitted. Until then, build the same package from
-  this repository (see [docs/INSTALL-ARCH.md](docs/INSTALL-ARCH.md)).
-- **Gentoo:** Portage packages in the `::snakebyte` overlay (`app-emulation/adobewine`,
-  maintained outside this project). See [docs/INSTALL-GENTOO.md](docs/INSTALL-GENTOO.md).
-- **Any other distribution:** build from source. See [docs/INSTALL.md](docs/INSTALL.md).
-
-Once installed, the short version is:
+PhotoshopWine is built from source for now. See [docs/INSTALL.md](docs/INSTALL.md) (or [docs/INSTALL-ARCH.md](docs/INSTALL-ARCH.md) and [docs/INSTALL-GENTOO.md](docs/INSTALL-GENTOO.md)). Once it is installed:
 
 ```sh
 adobewine setup --windows-fonts /path/to/Windows/Fonts  # create the prefix (once)
 adobewine run ~/Downloads/Creative_Cloud_Set-Up.exe       # install Creative Cloud, sign in
-adobewine fix-signin                                      # if the sign-in window stays blank
-adobewine cc                                              # install apps from Creative Cloud
-adobewine launchers                                       # add them to your app menu
+adobewine cc                                              # install Photoshop from Creative Cloud
+adobewine launchers                                       # add Photoshop to your app menu
 ```
 
-Which distributions, GPUs and desktops should work: [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
-When something breaks: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+When something breaks, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
-## How it was made
+## Tested on
 
-The patches come from comparing the same Adobe workflows on real Windows and under Wine.
-API traces, window trees and output files were recorded on Windows, and each difference
-was fixed in Wine with a small test program. Every patch has a one-line description in
-[docs/PATCHES.md](docs/PATCHES.md), and [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md)
-describes the method. Patches 0001-0003 come from
-[PhialsBasement](https://github.com/PhialsBasement)'s Adobe installer work for Wine. The
-rest were written for this project, and we would like to see them upstream in WineHQ.
+Kubuntu 26.04, KDE Plasma 6.6 on Wayland, NVIDIA RTX 4090. Other distributions, desktops and GPUs are untested so far. Reports, good or bad, are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Help wanted
+## Not affiliated with Adobe
 
-Where this is going and what's next: [docs/ROADMAP.md](docs/ROADMAP.md)
-([comments welcome](../../discussions/9)).
+PhotoshopWine is not affiliated with, endorsed by or supported by Adobe. "Adobe", "Photoshop" and "Creative Cloud" are trademarks of Adobe Inc., used here only to say which program this project is meant to run.
 
-- **Test it** on your distribution and GPU, and tell us in a
-  [compatibility report](../../issues/new?template=compatibility.yml).
-- **Report bugs** with a log: `adobewine` prints where it saved each run's log.
-- **Patches welcome**, especially for AMD and Intel GPUs, other distributions, and
-  upstreaming. See [CONTRIBUTING.md](CONTRIBUTING.md).
-- Questions and ideas: [Discussions](../../discussions).
+## Credits
+
+Built on [AdobeWine](https://github.com/le-birnes/AdobeWine) and upstream [Wine](https://www.winehq.org). The installer patches come from [PhialsBasement](https://github.com/PhialsBasement), the first desktop file dialog work from NickPittas' AE4Linux and Wine MR 10060, and several fixes from switch87.
 
 ## License
 
-The patches and scripts are licensed under the GNU LGPL 2.1 or later, the same as Wine
-(see [LICENSE](LICENSE)). DXVK, vkd3d-proton, nvidia-libs, wine-gecko and wine-mono are
-downloaded from their own projects and keep their own licenses.
+The patches and scripts are licensed under the GNU LGPL 2.1 or later, the same as Wine (see [LICENSE](LICENSE)). DXVK, vkd3d-proton, nvidia-libs, wine-gecko and wine-mono are downloaded from their own projects and keep their own licenses.
