@@ -21,13 +21,28 @@ With PhotoshopWine you get a near-native experience with the latest Photoshop ve
 
 ## Install
 
-PhotoshopWine is built from source for now. See [docs/INSTALL.md](docs/INSTALL.md). Once it is installed:
+Download the Creative Cloud installer from
+[Adobe](https://creativecloud.adobe.com/apps/download/creative-cloud), then run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nvb-uy/PhotoshopWine/master/install.sh | bash
+```
+
+It tells you if anything is missing on your system, sets everything up, starts the Creative
+Cloud installer and waits while you sign in and install Photoshop. When it finishes, open
+Adobe Photoshop from your app menu or run `photoshopwine`. Run it again if it stops, it picks
+up where it left off. Later, `photoshopwine update` keeps everything up to date.
+
+### Advanced setup
+
+To build the Wine runtime yourself and do each step by hand, follow
+[docs/INSTALL.md](docs/INSTALL.md). Once it is built:
 
 ```sh
 photoshopwine setup --windows-fonts /path/to/Windows/Fonts  # create the prefix (once)
-photoshopwine run ~/Downloads/Creative_Cloud_Set-Up.exe       # install Creative Cloud, sign in
-photoshopwine cc                                              # install Photoshop from Creative Cloud
-photoshopwine launchers                                       # add Photoshop to your app menu
+photoshopwine run ~/Downloads/Creative_Cloud_Set-Up.exe     # install Creative Cloud, sign in
+photoshopwine cc                                            # install Photoshop from Creative Cloud
+photoshopwine launchers                                     # add Photoshop to your app menu
 ```
 
 When something breaks, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
