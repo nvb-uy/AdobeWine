@@ -1,6 +1,6 @@
 # Compatibility review
 
-What AdobeWine needs from the system, what has been tested, and what is expected to work
+What PhotoshopWine needs from the system, what has been tested, and what is expected to work
 on other Linux distributions and Unix-like systems. "Tested" means checked on real
 hardware; everything else is reasoned from the dependencies and **needs reports from
 users**: please open a [compatibility report](../../../issues/new?template=compatibility.yml).
@@ -50,7 +50,7 @@ H.264/HEVC) work through nvidia-libs.
 | AMD RDNA 1-4 (RADV) | untested, expected to work for UI and GPU canvas | no CUDA: Premiere falls back to software rendering or OpenCL; no AMF hardware encoding through Wine |
 | AMD GCN 3-5 (RADV) | untested | |
 | Intel Arc / Xe (ANV) | untested | Iris Xe tested only as display GPU; no Quick Sync through Wine |
-| Hybrid Intel/AMD + NVIDIA | **works (tested)** | AdobeWine enables PRIME offload automatically |
+| Hybrid Intel/AMD + NVIDIA | **works (tested)** | PhotoshopWine enables PRIME offload automatically |
 
 ## Community reports
 
@@ -59,12 +59,12 @@ Results from other people's machines. Thank you! Add yours with a
 
 | Report | Distribution | Hardware | Desktop | Apps | Result |
 |---|---|---|---|---|---|
-| [#2](../../../issues/2) | Linux Mint 22.3 (kernel 7.0, built from source) | i7-12700H, 16 GB, Iris Xe + RTX 4060 Laptop, NVIDIA 595.91 | Cinnamon 6.6, X11 | Illustrator 2026 | works well. The Creative Cloud web installer showed a white window (the offline installer worked); high memory use with 16 GB RAM and no swap, one freeze (being investigated); Creative Cloud's close button does not quit it (File > Exit does) |
-| [#2](../../../issues/2#issuecomment-6056733418) (NickPittas) | Arch-based (Omarchy), kernel 7.2.5 | RTX 4090, NVIDIA 610.57.04 | Wayland | Creative Cloud web installer 2.14.0.82 | white window; NickPittas traced it to three missing browser features in Wine (fix in progress: patches 0055-0057; until then the launcher works around it) |
+| [AdobeWine #2](https://github.com/le-birnes/AdobeWine/issues/2) | Linux Mint 22.3 (kernel 7.0, built from source) | i7-12700H, 16 GB, Iris Xe + RTX 4060 Laptop, NVIDIA 595.91 | Cinnamon 6.6, X11 | Illustrator 2026 | works well. The Creative Cloud web installer showed a white window (the offline installer worked); high memory use with 16 GB RAM and no swap, one freeze (being investigated); Creative Cloud's close button does not quit it (File > Exit does) |
+| [AdobeWine #2](https://github.com/le-birnes/AdobeWine/issues/2#issuecomment-6056733418) (NickPittas) | Arch-based (Omarchy), kernel 7.2.5 | RTX 4090, NVIDIA 610.57.04 | Wayland | Creative Cloud web installer 2.14.0.82 | white window; NickPittas traced it to three missing browser features in Wine (fix in progress: patches 0055-0057; until then the launcher works around it) |
 
 ## Tested in containers
 
-The release tarball (`adobewine-0.1.0-x86_64.tar.zst`) was installed in clean containers
+The AdobeWine 0.1.0 release tarball (`adobewine-0.1.0-x86_64.tar.zst`) was installed in clean containers
 of each distribution, with exactly the runtime dependencies listed in
 [INSTALL.md](INSTALL.md), and run as a normal user.
 Run it yourself with `tests/distro/check.sh <tarball> [image ...]` (Docker or Podman).

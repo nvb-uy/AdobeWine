@@ -1,12 +1,12 @@
 name: Compatibility report
-description: Tell us how AdobeWine runs on your system (works, partly works, or not)
+description: Tell us how PhotoshopWine runs on your system (works, partly works, or not)
 title: "[compat] <app> on <distribution> / <GPU>"
 labels: [compatibility]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for testing! Tip: `adobewine report --note "..."` fills most of this in automatically.
+        Thanks for testing! Tip: `photoshopwine report --note "..."` fills most of this in automatically.
   - type: input
     id: distro
     attributes: { label: Distribution and version, placeholder: "Fedora 42 / Ubuntu 24.04 / Arch" }
@@ -20,7 +20,7 @@ body:
     attributes: { label: Desktop and session, placeholder: "GNOME 48 Wayland" }
   - type: input
     id: version
-    attributes: { label: AdobeWine version, placeholder: "0.2.2" }
+    attributes: { label: PhotoshopWine version, placeholder: "0.2.2" }
   - type: checkboxes
     id: apps
     attributes:

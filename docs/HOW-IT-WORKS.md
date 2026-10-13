@@ -1,10 +1,10 @@
-# How AdobeWine works
+# How PhotoshopWine works
 
 ## The pieces
 
 | Layer | What it does | Project |
 |---|---|---|
-| Wine 11.18 + AdobeWine patches | Windows API on Linux | this repository |
+| Wine 11.18 + PhotoshopWine patches | Windows API on Linux | this repository |
 | DXVK 3.1.1 | Direct3D 8-11 on Vulkan (UI, canvas, video effects) | doitsujin/dxvk |
 | vkd3d-proton 3.0.1 | Direct3D 12 on Vulkan (Illustrator canvas, Photoshop AI features) | HansKristian-Work/vkd3d-proton |
 | nvidia-libs 1.0.2 | CUDA, NVENC/NVDEC, NVAPI, NVML for Windows programs on the Linux NVIDIA driver | SveSop/nvidia-libs |
@@ -16,7 +16,7 @@ Windows, and sign in with your Adobe account.
 
 ## The method: record Windows, compare, fix
 
-Guessing why a large closed-source app misbehaves under Wine is slow. AdobeWine instead
+Guessing why a large closed-source app misbehaves under Wine is slow. PhotoshopWine instead
 compared the same workflow on a real Windows 11 machine and under Wine:
 
 1. **Inventory**: every DLL and function each Adobe binary imports, matched against what
@@ -29,7 +29,7 @@ compared the same workflow on a real Windows 11 machine and under Wine:
 4. **A minimal test program** that reproduces the difference, run on both Windows and
    Wine. The fix makes Wine give the Windows answer; the test stays in `tests/`.
 5. **Reference outputs**: exports made on Windows (PNG, PDF, WAV, H.264) are compared
-   with the same exports under AdobeWine, pixel by pixel or sample by sample.
+   with the same exports under PhotoshopWine, pixel by pixel or sample by sample.
 
 The [development log](DEVLOG.md) has every step, including dead ends.
 
@@ -41,7 +41,7 @@ The [development log](DEVLOG.md) has every step, including dead ends.
   asynchronous receive semantics, token integrity levels, font cache refresh across
   processes.
 - **Robustness against the apps' own bugs**: Creative Cloud helpers write to freed heap
-  memory; Windows tolerates it, so does AdobeWine (heap quarantine, patch 0032).
+  memory; Windows tolerates it, so does PhotoshopWine (heap quarantine, patch 0032).
 - **Rendering**: Direct2D layers, masks and arc geometry; offscreen Vulkan surfaces for
   child windows; swapchain resizing.
 - **Speed**: Photoshop's Home screen is UXP drawn on the main thread with GDI+ (its

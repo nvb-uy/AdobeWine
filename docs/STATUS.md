@@ -7,12 +7,12 @@ app's own scripting, and checked objectively: file properties with ffprobe or PI
 measurements, pixel comparisons against the same export made on Windows, or a screenshot.
 
 **Your results will differ on other hardware.** Please send a report with
-`adobewine report` or a [compatibility report](../../../issues/new?template=compatibility.yml).
+`photoshopwine report` or a [compatibility report](../../../issues/new?template=compatibility.yml).
 
 ## Known issues
 
 - Creative Cloud: the first visit to the Apps tab can stay on its loading placeholder;
-  switch to Home and back. (`adobewine cc` already applies a workaround.)
+  switch to Home and back. (`photoshopwine cc` already applies a workaround.)
 - Premiere Pro: the UI hung once after Home > New Project (1 of 4 runs); not reproduced since.
 - Illustrator (fixed in 0.2.2): SVG/PSD exports used Times New Roman instead of Myriad Pro because
   Adobe's shared font folder was missing; the launcher now fills it.
@@ -25,7 +25,7 @@ measurements, pixel comparisons against the same export made on Windows, or a sc
 | # | Function | How | Pass criterion | Status |
 |---|---|---|---|---|
 | 1 | New document | Ctrl+N | canvas with chosen size/mode | PASS 2026-10-04: File > New, 800x600 RGB 8-bit white, canvas and Properties show 800x600 |
-| 2 | Open image | Ctrl+O / launch with file | renders, correct size | PASS: `adobewine photoshop subject.jpg` renders; Ctrl+O dialog |
+| 2 | Open image | Ctrl+O / launch with file | renders, correct size | PASS: `photoshopwine subject.jpg` renders; Ctrl+O dialog |
 | 3 | Crop | C, drag, Enter | canvas size changes | PASS: canvas cropped to 994x424 (PSD header) |
 | 4 | Image Size | Alt+Ctrl+I | new pixel size | PASS: width 1280 -> ps_blur1280.png 1280x540 |
 | 5 | Free Transform | Ctrl+T | layer scaled/rotated | PASS: Layer 1 scaled to 622x265 (PSD layer record) |
@@ -93,7 +93,7 @@ measurements, pixel comparisons against the same export made on Windows, or a sc
 Scripted with an ExtendScript scenario run inside Illustrator under Wine; outputs compared with the outputs of the same scenario on Windows.
 | # | Function | How | Pass criterion | Status |
 |---|---|---|---|---|
-| 1 | Launch / Home | KDE menu or `adobewine illustrator` | window, Home with recents | PASS 2026-10-05: "Welcome to Illustrator" Home with Generate vectors, Featured, Recent; first-run "What's new" carousel as on Windows (0052) |
+| 1 | Launch / Home | KDE menu or `photoshopwine illustrator` | window, Home with recents | PASS 2026-10-05: "Welcome to Illustrator" Home with Generate vectors, Featured, Recent; first-run "What's new" carousel as on Windows (0052) |
 | 2 | New document | Ctrl+N / New file | New Document dialog | PASS: dialog with Recent/Print/Web... presets; Create opens Untitled-1 (A4, CMYK); canvas fills the view at any window size (0053) |
 | 3 | Shapes, pen, text | script steps 2-3 | objects created | PASS 2026-10-05: rectangle, ellipse, star, 2-segment pen path, point and area text (Myriad Pro) |
 | 4 | Gradient, effects | script step 4 | applied | PASS: linear gradient, Drop Shadow, Gaussian Blur; their rasters in the SVG are pixel-identical to Windows |
@@ -103,4 +103,4 @@ Scripted with an ExtendScript scenario run inside Illustrator under Wine; output
 | 8 | Export PNG / JPEG | script step 7 | match Windows | PASS: PNG 0.12 % pixels differ (max 29 levels), JPEG 1.4 % (max 22) |
 | 9 | Export SVG | script step 7 | match Windows | PASS with a note: same 8438 paths; the embedded SVG font uses Times New Roman metrics instead of Myriad Pro (SVG fonts only; browsers ignore them) |
 | 10 | GPU canvas | `ai_gpu.jsx` zoom 800 % pan 10 s | smooth | PASS: 39.6 redraws/s (Windows 31.4/s); panels and status bar draw correctly (0048, 0049) |
-| 11 | Quit | `adobewine off` / close | clean exit | PASS: graceful close in ~2 s, no processes left |
+| 11 | Quit | `photoshopwine off` / close | clean exit | PASS: graceful close in ~2 s, no processes left |

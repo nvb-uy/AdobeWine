@@ -24,10 +24,10 @@ With PhotoshopWine you get a near-native experience with the latest Photoshop ve
 PhotoshopWine is built from source for now. See [docs/INSTALL.md](docs/INSTALL.md). Once it is installed:
 
 ```sh
-adobewine setup --windows-fonts /path/to/Windows/Fonts  # create the prefix (once)
-adobewine run ~/Downloads/Creative_Cloud_Set-Up.exe       # install Creative Cloud, sign in
-adobewine cc                                              # install Photoshop from Creative Cloud
-adobewine launchers                                       # add Photoshop to your app menu
+photoshopwine setup --windows-fonts /path/to/Windows/Fonts  # create the prefix (once)
+photoshopwine run ~/Downloads/Creative_Cloud_Set-Up.exe       # install Creative Cloud, sign in
+photoshopwine cc                                              # install Photoshop from Creative Cloud
+photoshopwine launchers                                       # add Photoshop to your app menu
 ```
 
 When something breaks, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).

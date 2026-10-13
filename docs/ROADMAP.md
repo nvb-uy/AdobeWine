@@ -1,19 +1,19 @@
 # Roadmap
 
-Where AdobeWine is going, how far along it is, and where you can help. Comments, ideas and
+Where PhotoshopWine is going, how far along it is, and where you can help. Comments, ideas and
 disagreement are welcome in the [roadmap discussion](../../../discussions/9), or open an issue
 for anything specific.
 
 ## The goal: 100% usable
 
 An app counts as **100% usable** when every function it has on Windows either works under
-AdobeWine or behaves exactly as it does on Windows (same output within tolerance, same
+PhotoshopWine or behaves exactly as it does on Windows (same output within tolerance, same
 error). Functions that need hardware a machine doesn't have (CUDA on AMD, for example) count
 as n.a., not as failures.
 
 How we check: a Windows reference machine lists every function of each app (menus, filters,
 effects, export formats...) and saves a reference output for each one. The same steps then run
-under AdobeWine, and the outputs are compared objectively (pixels, audio, file properties), not
+under PhotoshopWine, and the outputs are compared objectively (pixels, audio, file properties), not
 by eye. Each app gets a checklist, and its score is PASS / (functions - n.a.).
 
 Beyond the per-app checklists, five gates apply to all apps:
@@ -83,7 +83,7 @@ Dates after M2 depend on what the checklists show.
 3. **Web panels** (CEF and MSHTML): Photoshop Home, Premiere Learn, the licensing window.
 4. **Creative Cloud life cycle:** the hang after it updates itself, the close button.
 5. **Memory:** Illustrator on 16 GB machines.
-6. ~~**HiDPI** scaling by default~~ done: `adobewine setup` follows the desktop's scale.
+6. ~~**HiDPI** scaling by default~~ done: `photoshopwine setup` follows the desktop's scale.
 
 **Always**
 - Re-run the checklists after each Adobe update; a drop counts as a serious bug.
@@ -92,7 +92,7 @@ Dates after M2 depend on what the checklists show.
 
 ## How you can help
 
-- **AMD and Intel GPUs:** the biggest gap. Run `adobewine report` and send a
+- **AMD and Intel GPUs:** the biggest gap. Run `photoshopwine report` and send a
   [compatibility report](../../../issues/new?template=compatibility.yml), even if "it starts
   and crashes" is all there is to say.
 - **Other distributions and Wayland sessions:** same, a report tells us more than you think.

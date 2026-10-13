@@ -1,4 +1,4 @@
-# Installing AdobeWine
+# Installing PhotoshopWine
 
 This guide is for any Linux distribution.
 
@@ -30,15 +30,14 @@ photoshopwine setup --windows-fonts /path/to/Windows/Fonts   # optional, see bel
 photoshopwine --help             # everything else: cc, off, fix-signin, launchers, report
 ```
 
-`photoshopwine` takes the same commands as `adobewine` (used in the rest of this guide),
-and with no command it opens Photoshop. The manual steps below are for building from
-source yourself.
+With no command, `photoshopwine` opens Photoshop. The manual steps below are for building
+from source yourself.
 
 You need:
 
 - a 64-bit x86 PC with a **Vulkan-capable GPU and driver** (NVIDIA proprietary driver,
   or Mesa RADV / ANV for AMD / Intel), see [COMPATIBILITY.md](COMPATIBILITY.md);
-- an **Adobe Creative Cloud subscription** (AdobeWine contains no Adobe software);
+- an **Adobe Creative Cloud subscription** (PhotoshopWine contains no Adobe software);
 - about **25 GB** of free disk space (Wine build ~8 GB, each Adobe app 3-10 GB);
 - for the best results, **fonts from your own Windows installation** (a Windows
   partition, or a copy of `C:\Windows\Fonts`). Adobe's interface uses Segoe UI, and
@@ -47,7 +46,12 @@ You need:
   Microsoft's open fallback font Selawik if your distribution has it installed.
 
 Nothing is installed system-wide. The Wine build, the downloads and the Windows prefix all
-live in `~/.local/share/adobewine` (change it with the `ADOBEWINE_HOME` variable).
+live in `~/.local/share/photoshopwine` (change it with the `PHOTOSHOPWINE_HOME` variable).
+
+Coming from AdobeWine: the first time `photoshopwine` runs, it moves `~/.local/share/adobewine`
+to `~/.local/share/photoshopwine` (and `~/.config/adobewine` to `~/.config/photoshopwine`)
+and leaves a link at the old place, so your prefix and apps are kept. If Wine is still running
+from the old folder at that moment, it waits until the next start.
 
 ## 1. Install the build tools
 
@@ -95,8 +99,8 @@ Wine's USE flags `vulkan` and `wow64` should be on.
 
 ### Runtime dependencies only
 
-If you use a prebuilt runtime (see "Prebuilt runtime" below) you only need what AdobeWine
-needs to *run*:
+If you use a prebuilt runtime (see "Prebuilt runtime" below) you only need what
+PhotoshopWine needs to *run*:
 
 ```sh
 # Debian 13: winetricks is in the "contrib" section; enable it first:
@@ -126,45 +130,37 @@ These lines are checked automatically in clean containers (`tests/distro/check.s
 
 ### Prebuilt runtime (experimental outside Arch)
 
-Each release has `adobewine-<version>-x86_64.tar.zst`, built on Arch Linux. It contains
-`/opt/adobewine` (the Wine runtime plus the scripts). On other distributions with a
-recent glibc it may work:
-
-```sh
-sudo tar -C / -xf adobewine-0.2.2-x86_64.tar.zst   # from the latest release
-sudo ln -sf /opt/adobewine/bin/adobewine /usr/local/bin/adobewine
-```
-
-This has been tested on Debian 13, Ubuntu 24.04, Fedora 42 and openSUSE Tumbleweed: Wine
+The one-line installer downloads `photoshopwine-runtime-<version>-x86_64.tar.zst` from the
+release, built on Arch Linux. On other distributions with a recent glibc it should work:
+it has been tested on Debian 13, Ubuntu 24.04, Fedora 42 and openSUSE Tumbleweed, where Wine
 starts, creates a prefix and runs 64-bit and 32-bit programs. One known limit: the build
 links Wine's FFmpeg media decoder (`winedmo`) against Arch's current FFmpeg (libavcodec 63),
-which those distributions do not ship yet, so video import uses Wine's GStreamer path instead. For video
-work outside Arch, building from source (below) is the better choice.
+which those distributions do not ship yet, so video import uses Wine's GStreamer path instead.
 
-If `adobewine setup` fails with missing-library or glibc errors, build from source instead.
+If `photoshopwine setup` fails with missing-library or glibc errors, build from source instead.
 
-## 2. Get AdobeWine and build it
+## 2. Get PhotoshopWine and build it
 
 ```sh
-git clone https://github.com/le-birnes/AdobeWine.git
-cd AdobeWine
+git clone https://github.com/nvb-uy/PhotoshopWine.git
+cd PhotoshopWine
 scripts/build-wine.sh          # 20-60 minutes the first time
 ```
 
 The script downloads Wine 11.18, applies the patches in `patches/` and installs the
-result into `~/.local/share/adobewine/runtime`. Later runs are much faster when
+result into `~/.local/share/photoshopwine/runtime`. Later runs are much faster when
 `ccache` is installed.
 
-Put the `adobewine` command on your PATH:
+Put the `photoshopwine` command on your PATH:
 
 ```sh
-mkdir -p ~/.local/bin && ln -sf "$PWD/bin/adobewine" ~/.local/bin/adobewine
+mkdir -p ~/.local/bin && ln -sf "$PWD/bin/photoshopwine" ~/.local/bin/photoshopwine
 ```
 
 ## 3. Create the prefix
 
 ```sh
-adobewine setup --windows-fonts /mnt/windows/Windows/Fonts
+photoshopwine setup --windows-fonts /mnt/windows/Windows/Fonts
 ```
 
 This downloads DXVK, vkd3d-proton and (on NVIDIA) nvidia-libs, checks their checksums,
@@ -179,7 +175,7 @@ Download the Creative Cloud installer from Adobe
 (<https://www.adobe.com/download/creative-cloud>), then:
 
 ```sh
-adobewine run ~/Downloads/Creative_Cloud_Set-Up.exe
+photoshopwine run ~/Downloads/Creative_Cloud_Set-Up.exe
 ```
 
 If the installer window stays white, use Adobe's
@@ -189,8 +185,8 @@ Sign in with your Adobe account when the installer asks. If the sign-in window s
 blank or white, close it and run:
 
 ```sh
-adobewine fix-signin
-adobewine cc
+photoshopwine fix-signin
+photoshopwine cc
 ```
 
 `fix-signin` makes Adobe's sign-in library use its Internet Explorer-based window instead
@@ -199,17 +195,16 @@ about your account or licence.
 
 ## 5. Install and start the apps
 
-In the Creative Cloud window, open **Apps** and install the apps you want (Photoshop,
-Illustrator, Premiere Pro, Audition, Media Encoder). Then:
+In the Creative Cloud window, open **Apps** and install Photoshop. Then:
 
 ```sh
-adobewine launchers        # adds them to your desktop's application menu
-adobewine photoshop        # or illustrator, premiere, audition, encoder, cc
+photoshopwine launchers        # adds Photoshop to your desktop's application menu
+photoshopwine                  # opens Photoshop
 ```
 
-To close everything cleanly (the apps may ask to save): `adobewine off`.
+To close everything cleanly (the apps may ask to save): `photoshopwine off`.
 
-## Updating AdobeWine
+## Updating PhotoshopWine
 
 ```sh
 photoshopwine update
@@ -219,18 +214,17 @@ This updates the checkout (when it has no local changes), gets the new runtime w
 release has one (or rebuilds yours if you built it) and runs setup again. By hand:
 
 ```sh
-cd AdobeWine && git pull && scripts/build-wine.sh
+cd PhotoshopWine && git pull && scripts/build-wine.sh
 ```
 
-Your prefix and installed apps stay as they are. Run `adobewine setup` again if the release
+Your prefix and installed apps stay as they are. Run `photoshopwine setup` again if the release
 notes say so.
 
 ## Uninstalling
 
 ```sh
-adobewine off
-adobewine launchers --remove
-rm -rf ~/.local/share/adobewine     # removes the prefix, including the installed Adobe apps
-rm ~/.local/bin/adobewine ~/.local/bin/photoshopwine
-rm -rf ~/.local/share/photoshopwine # if you used the one-line installer
+photoshopwine off
+photoshopwine launchers --remove
+rm -rf ~/.local/share/photoshopwine   # removes the prefix, including the installed Adobe apps
+rm ~/.local/bin/photoshopwine
 ```

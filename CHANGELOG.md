@@ -28,6 +28,14 @@ PhotoshopWine: this branch is now a fork of AdobeWine tailored to Photoshop.
 - Shader cache files are no longer left in the folder Photoshop was started from.
 - Message box text and dialog button labels are no longer cut off at the right edge, and long
   file dialog button labels no longer wrap (patches 0099, 0100).
+- The command is `photoshopwine` (with no command it opens Photoshop) and `adobewine` is gone.
+  Data lives in `~/.local/share/photoshopwine` and settings in `~/.config/photoshopwine`; an
+  existing AdobeWine install is moved there on the first start, with a link left at the old path.
+  The environment variables are `PHOTOSHOPWINE_HOME`, `PHOTOSHOPWINE_NVIDIA_OFFLOAD` and so on.
+- One-line installer (`install.sh`) and `photoshopwine update`; reports go to the PhotoshopWine
+  repository.
+
+The releases below are AdobeWine releases, from before the fork.
 
 ## 0.2.2 - 2026-10-11
 

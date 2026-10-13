@@ -1,6 +1,6 @@
-# Contributing to AdobeWine
+# Contributing to PhotoshopWine
 
-Thank you for helping. AdobeWine is tested on one machine so far; every report from other
+Thank you for helping. PhotoshopWine is tested on one machine so far; every report from other
 hardware is valuable, positive or negative.
 
 ## Testing and reporting
@@ -8,7 +8,7 @@ hardware is valuable, positive or negative.
 - **Works for you?** Open a [compatibility report](../../issues/new?template=compatibility.yml)
   with your distribution, GPU and what you tried. "Photoshop 27.10 works on Fedora 42 with
   an RX 7800 XT" is a useful report.
-- **Something broke?** Run `adobewine report`. It asks what you were doing (for example
+- **Something broke?** Run `photoshopwine report`. It asks what you were doing (for example
   "opened a 200 MB .ai file, the system froze"), collects the details with personal data
   removed (see [docs/REPORTING.md](docs/REPORTING.md)), or open a
   [bug report](../../issues/new?template=bug.yml).
@@ -36,14 +36,14 @@ every patch still applies to Wine 11.18.
 
 ## Upstreaming
 
-Most AdobeWine patches are general Wine fixes. Getting them into WineHQ
+Most PhotoshopWine patches are general Wine fixes. Getting them into WineHQ
 (<https://gitlab.winehq.org/wine/wine>) helps every Wine user and shrinks this patch set.
 Upstream wants Wine-style tests in `dlls/*/tests`; converting our tests to that form is a
 great first contribution.
 
 ## Ground rules
 
-- No licence circumvention, cracks, or anything that weakens Adobe's sign-in. AdobeWine
+- No licence circumvention, cracks, or anything that weakens Adobe's sign-in. PhotoshopWine
   must stay usable only with a legitimate subscription.
 - Be kind; see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 - By contributing you agree your contribution is licensed under LGPL-2.1-or-later.

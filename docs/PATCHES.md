@@ -1,6 +1,6 @@
 # Patches
 
-AdobeWine is upstream Wine 11.18 plus these patches, applied in order. Each one fixes a
+PhotoshopWine is upstream Wine 11.18 plus these patches, applied in order. Each one fixes a
 difference between Wine and Windows found by running the same Adobe workflow on both. How each
 problem was found, with measurements and the test programs (in `tests/`), is in
 [DEVLOG.md](DEVLOG.md); the method is in [HOW-IT-WORKS.md](HOW-IT-WORKS.md). Patches marked AdobeWine are meant to go upstream
