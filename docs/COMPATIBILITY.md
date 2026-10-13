@@ -79,9 +79,10 @@ which need a real GPU and desktop.
 | Fedora 42 (2.41) | yes | yes | yes | yes / yes | FFmpeg 63 |
 | openSUSE Tumbleweed (2.44) | yes | yes | yes | yes / yes | FFmpeg 63 |
 
-FFmpeg: the prebuilt runtime is built on Arch and links Wine's FFmpeg media decoder
-(`winedmo.so`) against libavcodec 63. Where that is missing, Wine uses its GStreamer path
-for video import. Building from source on your distribution links against its own FFmpeg.
+FFmpeg: the 0.1.0 tarball was built on Arch and linked Wine's FFmpeg media decoder
+(`winedmo.so`) against libavcodec 63. PhotoshopWine releases are built on Ubuntu 22.04
+without it, so Wine uses its GStreamer path for video import. Building from source on your
+distribution links against its own FFmpeg.
 Ubuntu-based (Linux Mint, Pop!_OS, Zorin) and Fedora-based (Nobara, Ultramarine) systems
 use the same packages, but were not tested separately.
 

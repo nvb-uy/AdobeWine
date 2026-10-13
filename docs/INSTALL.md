@@ -107,6 +107,7 @@ PhotoshopWine needs to *run*:
 sudo sed -i 's/^Components: main$/Components: main contrib/' /etc/apt/sources.list.d/debian.sources
 sudo apt update
 # Debian / Ubuntu (Ubuntu has winetricks in "universe", enabled by default)
+# (Debian 12 and Ubuntu 22.04: libasound2 instead of libasound2t64)
 sudo apt install winetricks curl zstd libvulkan1 libgnutls30 libpulse0 libasound2t64 \
      gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
      gstreamer1.0-libav libfreetype6 libfontconfig1 libunwind8 libxkbcommon0 p7zip-full python3-pil
@@ -128,14 +129,16 @@ sudo pacman -S --needed desktop-file-utils fontconfig freetype2 gettext glib2 li
 These lines are checked automatically in clean containers (`tests/distro/check.sh`), see
 [COMPATIBILITY.md](COMPATIBILITY.md#tested-in-containers).
 
-### Prebuilt runtime (experimental outside Arch)
+### Prebuilt runtime
 
 The one-line installer downloads `photoshopwine-runtime-<version>-x86_64.tar.zst` from the
-release, built on Arch Linux. On other distributions with a recent glibc it should work:
-it has been tested on Debian 13, Ubuntu 24.04, Fedora 42 and openSUSE Tumbleweed, where Wine
-starts, creates a prefix and runs 64-bit and 32-bit programs. One known limit: the build
-links Wine's FFmpeg media decoder (`winedmo`) against Arch's current FFmpeg (libavcodec 63),
-which those distributions do not ship yet, so video import uses Wine's GStreamer path instead.
+GitHub release of its version. Releases are built automatically on Ubuntu 22.04, so the
+runtime works on distributions with glibc 2.35 or newer: Ubuntu 22.04 and later, Debian 12
+and later, Linux Mint 21 and later, current Fedora, openSUSE Tumbleweed and Arch. Each
+release is checked in clean Debian 13, Ubuntu 24.04, Fedora 42, openSUSE Tumbleweed and
+Arch containers, where Wine starts, creates a prefix and runs 64-bit and 32-bit programs.
+It is built without Wine's FFmpeg media decoder (`winedmo`), because FFmpeg's library
+versions differ between distributions; video import uses Wine's GStreamer path instead.
 
 If `photoshopwine setup` fails with missing-library or glibc errors, build from source instead.
 
