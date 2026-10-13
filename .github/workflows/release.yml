@@ -1,0 +1,187 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "tag to release, e.g. v0.3.0 (it must exist and match VERSION)"
+        required: true
+      draft:
+        description: "create the release as a draft"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    name: check the version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - name: tag matches VERSION and has no release yet
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver="$(tr -d '[:space:]' < VERSION)"
+          if [ "$TAG" != "v$ver" ]; then
+            echo "::error::the tag is $TAG but VERSION says $ver: bump VERSION or tag v$ver"
+            exit 1
+          fi
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::there is already a $TAG release: delete it first to build it again"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build the Wine runtime
+    needs: check
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    timeout-minutes: 330
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      PHOTOSHOPWINE_HOME: /opt/photoshopwine
+      CCACHE_DIR: /opt/ccache
+      CCACHE_MAXSIZE: 3G
+      CPPFLAGS: -I/opt/kernel-headers
+      CFLAGS: -O2
+      CROSSCFLAGS: -O2
+      INSTALL_PROGRAM_FLAGS: -s
+    steps:
+      - name: build dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            ca-certificates git curl xz-utils zstd python3 ccache gcc make flex bison perl \
+            pkg-config gettext mingw-w64 libc6-dev \
+            libx11-dev libxext-dev libxrandr-dev libxi-dev libxcomposite-dev libxcursor-dev \
+            libxinerama-dev libxxf86vm-dev libxrender-dev libxfixes-dev libxkbcommon-dev \
+            libxkbregistry-dev libwayland-dev libegl-dev libgl-dev libvulkan-dev \
+            libfreetype-dev libfontconfig-dev libgnutls28-dev libpulse-dev libasound2-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libdbus-1-dev libsdl2-dev \
+            libkrb5-dev libunwind-dev libudev-dev libusb-1.0-0-dev libcups2-dev ocl-icd-opencl-dev
+          x86_64-w64-mingw32-gcc --version | sed -n 1p
+          ldd --version | sed -n 1p
+
+      - name: ntsync header (newer than Ubuntu 22.04's kernel headers)
+        run: |
+          mkdir -p /opt/kernel-headers/linux
+          curl -fsSL -o /opt/kernel-headers/linux/ntsync.h \
+            https://raw.githubusercontent.com/torvalds/linux/v6.14/include/uapi/linux/ntsync.h
+
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ needs.check.outputs.tag }}
+
+      - name: restore the compiler cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/ccache
+          key: ccache-ubuntu22.04-${{ hashFiles('patches/*.patch', 'scripts/build-wine.sh', 'scripts/make-dark-theme.py') }}
+          restore-keys: ccache-ubuntu22.04-
+
+      - name: build Wine
+        run: |
+          ccache -z
+          scripts/build-wine.sh "$(nproc)"
+          ccache -s
+          grep -E "^configure: (WARNING|.*won't be supported)" "$PHOTOSHOPWINE_HOME/src/build/config.log" || true
+          grep -q '^#define HAVE_LINUX_NTSYNC_H' "$PHOTOSHOPWINE_HOME/src/build/include/config.h"
+          rm -rf "$PHOTOSHOPWINE_HOME/src"
+          du -sh "$PHOTOSHOPWINE_HOME/runtime"
+
+      - name: smoke test
+        run: |
+          export PATH="$PHOTOSHOPWINE_HOME/runtime/bin:$PATH" WINEPREFIX="$RUNNER_TEMP/prefix"
+          export WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml="
+          unset DISPLAY WAYLAND_DISPLAY
+          for f in "$PHOTOSHOPWINE_HOME"/runtime/lib/wine/x86_64-unix/*.so; do
+            ldd "$f" | grep 'not found' | grep -vE '(ntdll|win32u)\.so ' | sed "s|^|${f##*/}: |" || true
+          done
+          wine --version
+          timeout 300 wineboot -i
+          out="$(timeout 60 wine cmd /c ver | tr -d '\r')"
+          echo "$out"
+          grep -q 'Microsoft Windows' <<< "$out"
+          out="$(timeout 60 wine 'C:\windows\syswow64\cmd.exe' /c echo ok32 | tr -d '\r')"
+          [ "$out" = ok32 ]
+          wineserver -k || true
+          rm -rf "$WINEPREFIX"
+
+      - name: pack the runtime
+        run: scripts/make-runtime-tarball.sh "$RUNNER_TEMP/release"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime
+          path: ${{ runner.temp }}/release/
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    name: publish the release
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ needs.check.outputs.tag }}
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: runtime
+          path: release
+
+      - name: release notes from CHANGELOG.md
+        env:
+          VER: ${{ needs.check.outputs.version }}
+        run: |
+          section() {
+            awk -v h="$1" '/^## / { if (on) exit; on = ($2 == h) ; next } on' CHANGELOG.md
+          }
+          notes="$(section "$VER")"
+          [ -n "$notes" ] || notes="$(section Unreleased)"
+          {
+            printf '%s\n\n' "$notes"
+            echo "Install or update with the one-line installer in [docs/INSTALL.md](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/docs/INSTALL.md), or \`photoshopwine update\`."
+          } > notes.md
+          cat notes.md
+
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ needs.check.outputs.version }}
+          DRAFT: ${{ inputs.draft && 'yes' || '' }}
+        run: |
+          gh release create "$TAG" release/photoshopwine-runtime-"$VER"-x86_64.tar.zst* \
+            -R "$GITHUB_REPOSITORY" --verify-tag --title "PhotoshopWine $VER" --notes-file notes.md ${DRAFT:+--draft}
+
+  distro:
+    name: distro check
+    needs: [check, publish]
+    if: ${{ !inputs.draft }}
+    uses: ./.github/workflows/distro.yml
+    with:
+      tag: ${{ needs.check.outputs.tag }}
