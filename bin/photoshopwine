@@ -2,6 +2,7 @@
 # PhotoshopWine: Adobe Photoshop on Linux.
 #   photoshopwine [files...]                   open Photoshop, with the given files
 #   photoshopwine setup [--windows-fonts DIR] [--dpi N|auto]  create or refresh the prefix
+#   photoshopwine update                       update PhotoshopWine and refresh the setup
 #   photoshopwine cc                           open Creative Cloud
 #   photoshopwine run <program.exe> [args...]  run a Windows program next to Photoshop
 #   photoshopwine off [--force]                close Photoshop like its close button, then stop
@@ -14,8 +15,12 @@ here="$(dirname "$self")"
 case "${1:-}" in
   setup|run|cc|off|launchers|report|fix-signin|winecfg|regedit|shell)
     exec "$here/adobewine" "$@" ;;
+  update)
+    shift
+    [ -f "$here/../install.sh" ] || { echo "This copy of PhotoshopWine is managed by your package manager; update it there." >&2; exit 1; }
+    exec bash "$here/../install.sh" --update ;;
   -h|--help)
-    sed -n '2,11p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    sed -n '2,12p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *)
     exec "$here/adobewine" photoshop "$@" ;;
 esac
