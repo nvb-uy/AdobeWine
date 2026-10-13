@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Give the Wine prefix the desktop's colours, dark or light mode, accent colour and scale.
-
-Usage: desktop-settings.py [--force]
-
-On KDE the colours come from the colour scheme (kdeglobals), elsewhere from a built-in
-Adwaita dark or Windows light palette chosen by the desktop portal's colour scheme. The
-result goes into the registry with regedit; a copy is kept in the prefix and regedit only
-runs when something changed (or with --force). Programs started afterwards pick it up.
-The DPI is DPI= from ~/.config/photoshopwine/config, else Xft.dpi, else GNOME's text scaling.
-"""
 import configparser
 import json
 import os

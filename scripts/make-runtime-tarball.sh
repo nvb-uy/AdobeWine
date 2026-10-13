@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Maintainers: pack $PHOTOSHOPWINE_HOME/runtime and the small Windows helpers into the prebuilt
-# runtime that install.sh downloads. Usage: scripts/make-runtime-tarball.sh [output dir]
 set -euo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd)/bin/env.sh"
 ver="$(tr -d '[:space:]' < "$PHOTOSHOPWINE_SRC/VERSION")"

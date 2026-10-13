@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# PhotoshopWine: Adobe Photoshop on Linux.
-#   photoshopwine [files...]                   open Photoshop, with the given files
-#   photoshopwine setup [--windows-fonts DIR] [--dpi N|auto]  create or refresh the prefix
-#   photoshopwine update                       update PhotoshopWine and refresh the setup
-#   photoshopwine cc                           open Creative Cloud
-#   photoshopwine run <program.exe> [args...]  run a Windows program next to Photoshop
-#   photoshopwine off [--force]                close Photoshop like its close button, then stop
-#   photoshopwine fix-signin                   use the built-in browser for Adobe sign-in (see docs)
-#   photoshopwine launchers [--remove]         add Photoshop to the desktop menu
-#   photoshopwine report [--note "..."]        send a problem report (you see it first)
-#   photoshopwine winecfg|regedit|shell        Wine tools for this prefix
-#   photoshopwine illustrator|premiere|audition|encoder|aftereffects [files...]  other Adobe apps (unsupported)
+usage() {
+  cat <<'EOF'
+PhotoshopWine: Adobe Photoshop on Linux.
+  photoshopwine [files...]                   open Photoshop, with the given files
+  photoshopwine setup [--windows-fonts DIR] [--dpi N|auto]  create or refresh the prefix
+  photoshopwine update                       update PhotoshopWine and refresh the setup
+  photoshopwine cc                           open Creative Cloud
+  photoshopwine run <program.exe> [args...]  run a Windows program next to Photoshop
+  photoshopwine off [--force]                close Photoshop like its close button, then stop
+  photoshopwine fix-signin                   use the built-in browser for Adobe sign-in (see docs)
+  photoshopwine launchers [--remove]         add Photoshop to the desktop menu
+  photoshopwine report [--note "..."]        send a problem report (you see it first)
+  photoshopwine winecfg|regedit|shell        Wine tools for this prefix
+  photoshopwine illustrator|premiere|audition|encoder|aftereffects [files...]  other Adobe apps (unsupported)
+EOF
+}
 self="$(readlink -f "$0")"
 here="$(dirname "$self")"
 cmd="${1:-}"
@@ -20,7 +24,7 @@ case "$cmd" in
     [ -f "$here/../install.sh" ] || { echo "This copy of PhotoshopWine is managed by your package manager; update it there." >&2; exit 1; }
     exec bash "$here/../install.sh" --update ;;
   -h|--help)
-    sed -n '2,13p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    usage; exit 0 ;;
   *) cmd=photoshop ;;
 esac
 source "$here/env.sh"

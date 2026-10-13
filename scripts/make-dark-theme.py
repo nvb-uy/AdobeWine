@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""Add a "Dark" colour variant to Wine's aero.msstyles.
-
-Usage: make-dark-theme.py <wine source dir>
-
-Writes dark_*.bmp next to the blue_*.bmp files and adds the variant to aero.rc (colour
-name, ini file and bitmap resources). The bitmaps are the blue ones with their lightness
-inverted and their tint kept, so light faces turn dark, dark glyphs light, and accents stay
-blue. Files are only written when their content changes, so rebuilds stay incremental.
-The system colours set here are only defaults: the launcher sets the desktop's colours in
-the registry (desktop-settings.py), and those win once the theme is loaded.
-"""
 import glob
 import os
 import re

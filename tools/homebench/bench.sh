@@ -1,6 +1,4 @@
 #!/bin/bash
-# usage: bench.sh [wheel|pwheel|move|pmove] [events] [interval ms] [runs]
-# Photoshop must be running with its Home screen open.
 D=$(cd "$(dirname "$0")" && pwd)
 source "$D/../../bin/env.sh"
 mode=${1:-pwheel}; n=${2:-300}; iv=${3:-16}; runs=${4:-2}

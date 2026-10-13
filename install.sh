@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Install PhotoshopWine, or continue an install that stopped. Safe to run again.
-#   curl -fsSL https://raw.githubusercontent.com/nvb-uy/PhotoshopWine/master/install.sh | bash
-#   curl -fsSL .../install.sh | bash -s -- /path/to/Creative_Cloud_Set-Up.exe
-#   ./install.sh [Creative_Cloud_Set-Up.exe]    from a checkout
-#   ./install.sh --update                        what photoshopwine update runs
 set -euo pipefail
 
 REPO="${PHOTOSHOPWINE_REPO:-https://github.com/nvb-uy/PhotoshopWine.git}"
@@ -347,7 +342,13 @@ add_launchers() {
 }
 
 usage() {
-  sed -n '2,6p' "${BASH_SOURCE[0]:-install.sh}" 2>/dev/null | sed 's/^# \{0,1\}//'
+  cat <<'EOF'
+Install PhotoshopWine, or continue an install that stopped. Safe to run again.
+  curl -fsSL https://raw.githubusercontent.com/nvb-uy/PhotoshopWine/master/install.sh | bash
+  curl -fsSL .../install.sh | bash -s -- /path/to/Creative_Cloud_Set-Up.exe
+  ./install.sh [Creative_Cloud_Set-Up.exe]    from a checkout
+  ./install.sh --update                        what photoshopwine update runs
+EOF
 }
 
 main() {

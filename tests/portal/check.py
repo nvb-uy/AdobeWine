@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# Checks the outputs of run.sh: check.py <outdir> <files dir> <files dir as a Windows path>
 import json
 import os
 import sys
