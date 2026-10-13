@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# PhotoshopWine: Adobe Photoshop on Linux.
+#   photoshopwine [files...]                   open Photoshop, with the given files
+#   photoshopwine setup [--windows-fonts DIR] [--dpi N|auto]  create or refresh the prefix
+#   photoshopwine cc                           open Creative Cloud
+#   photoshopwine run <program.exe> [args...]  run a Windows program next to Photoshop
+#   photoshopwine off [--force]                close Photoshop like its close button, then stop
+#   photoshopwine fix-signin                   use the built-in browser for Adobe sign-in (see docs)
+#   photoshopwine launchers [--remove]         add Photoshop to the desktop menu
+#   photoshopwine report [--note "..."]        send a problem report (you see it first)
+#   photoshopwine winecfg|regedit|shell        Wine tools for this prefix
+self="$(readlink -f "$0")"
+here="$(dirname "$self")"
+case "${1:-}" in
+  setup|run|cc|off|launchers|report|fix-signin|winecfg|regedit|shell)
+    exec "$here/adobewine" "$@" ;;
+  -h|--help)
+    sed -n '2,11p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *)
+    exec "$here/adobewine" photoshop "$@" ;;
+esac

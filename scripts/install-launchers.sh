@@ -22,7 +22,9 @@ if [ "${1:-}" = --remove ]; then
 fi
 mkdir -p "$APPS"
 PF="$WINEPREFIX/drive_c/Program Files/Adobe"
-EXEC="\"$(printf '%s' "$ADOBEWINE_SRC/bin/adobewine" | sed -e 's/\\/\\\\\\\\/g' -e 's/["`$]/\\\\&/g' -e 's/%/%%/g')\""
+quote() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\\\\\/g' -e 's/["`$]/\\\\&/g' -e 's/%/%%/g')"; }
+EXEC="$(quote "$ADOBEWINE_SRC/bin/adobewine")"
+PSW="$(quote "$ADOBEWINE_SRC/bin/photoshopwine")"
 CC="$PF/Adobe Creative Cloud/ACC/Creative Cloud.exe"
 latest() {  # newest installed release folder of an app, e.g. "Adobe Photoshop 2025"
   local d; d="$(ls -d "$PF/$1 20"[0-9][0-9] 2>/dev/null | sort -V | tail -1)"
@@ -38,8 +40,9 @@ icon() {
 entry() {
   [ -f "$2" ] || return 0
   icon "$1" "$2"
-  local f="$APPS/adobe-$1.desktop" files=" %F" actions="quit-all;"
+  local f="$APPS/adobe-$1.desktop" files=" %F" actions="quit-all;" x="$EXEC" app=" $1"
   [ "$1" = cc ] && files=""
+  [ "$1" = photoshop ] && { x="$PSW"; app=""; }
   [ "$1" = photoshop ] && [ -f "$CC" ] && actions="creative-cloud;quit-all;"
   {
     echo "[Desktop Entry]"
@@ -48,7 +51,7 @@ entry() {
     echo "GenericName=$4"
     echo "Comment=$5"
     echo "Keywords=$6"
-    echo "Exec=$EXEC $1$files"
+    echo "Exec=$x$app$files"
     echo "Icon=adobe-$1"
     echo "Terminal=false"
     echo "StartupNotify=true"
@@ -61,13 +64,13 @@ entry() {
       echo
       echo "[Desktop Action creative-cloud]"
       echo "Name=Creative Cloud"
-      echo "Exec=$EXEC cc"
+      echo "Exec=$x cc"
       echo "Icon=adobe-cc"
     fi
     echo
     echo "[Desktop Action quit-all]"
     echo "Name=Quit All Adobe Apps"
-    echo "Exec=$EXEC off"
+    echo "Exec=$x off"
     echo "Icon=application-exit"
   } > "$f"
   command -v desktop-file-validate >/dev/null && { desktop-file-validate "$f" || true; }
