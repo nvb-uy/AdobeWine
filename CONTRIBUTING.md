@@ -34,6 +34,37 @@ anything copied from your Adobe account.
 `scripts/build-wine.sh` rebuilds from a clean tree with all patches. CI checks that
 every patch still applies to Wine 11.18.
 
+## Making a release
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`):
+
+1. Put the new version in `VERSION`, e.g. `0.3.0`.
+2. In `CHANGELOG.md`, rename `## Unreleased` to `## 0.3.0 - <date>` (or move its entries
+   into that section) and start a new empty `## Unreleased` above it. That section becomes
+   the release notes.
+3. Commit, then tag and push the tag:
+   ```sh
+   git tag v0.3.0 && git push origin v0.3.0
+   ```
+4. When the release is up, push the commit to `master` (`git push origin master`).
+
+The workflow checks that the tag matches `VERSION`, builds Wine with `scripts/build-wine.sh`
+on Ubuntu 22.04 (so the runtime runs on distributions with glibc 2.35 or newer), checks
+that it starts and creates a prefix, packs it with `scripts/make-runtime-tarball.sh` and
+publishes the `v0.3.0` release with `photoshopwine-runtime-0.3.0-x86_64.tar.zst` and its
+`.sha256`. It then runs the distro check (`tests/distro/check.sh`) against the new release.
+The first build takes about two hours; later ones are faster thanks to the compiler cache.
+
+Nothing else is needed: once `VERSION` on `master` says `0.3.0` and the release exists, the
+one-line installer and `photoshopwine update` download that runtime instead of building
+it. That is why `master` is pushed last: anyone who updates while `VERSION` is ahead of the
+releases builds Wine themselves, which takes hours.
+
+To build a release for an existing tag again, delete the release on GitHub and run the
+workflow from the Actions tab ("release", Run workflow, with the tag). The "draft" option
+creates a draft release that the installer does not see until you publish it; publishing
+it also runs the distro check.
+
 ## Upstreaming
 
 Most PhotoshopWine patches are general Wine fixes. Getting them into WineHQ
