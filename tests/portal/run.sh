@@ -12,7 +12,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WINE="$(readlink -f "${1:?usage: run.sh <wine> [outdir]}")"
-OUT="$(mkdir -p "${2:-/tmp/adobewine-portal}" && cd "${2:-/tmp/adobewine-portal}" && pwd)"
+OUT="$(mkdir -p "${2:-/tmp/photoshopwine-portal}" && cd "${2:-/tmp/photoshopwine-portal}" && pwd)"
 PY=
 for p in ${PORTAL_PYTHON:-} /usr/bin/python3 python3; do
   "$p" -c 'import dbus, dbus.service, dbus.mainloop.glib; from gi.repository import GLib' 2>/dev/null && { PY=$p; break; }

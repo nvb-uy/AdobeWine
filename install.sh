@@ -10,15 +10,34 @@ REPO="${PHOTOSHOPWINE_REPO:-https://github.com/nvb-uy/PhotoshopWine.git}"
 BRANCH="${PHOTOSHOPWINE_BRANCH:-master}"
 RELEASES="${PHOTOSHOPWINE_RELEASES:-https://github.com/nvb-uy/PhotoshopWine/releases/download}"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
-export ADOBEWINE_HOME="${ADOBEWINE_HOME:-$DATA/adobewine}"
-export WINEPREFIX="${WINEPREFIX:-$ADOBEWINE_HOME/prefix}"
-RUNTIME="$ADOBEWINE_HOME/runtime"
+
+pick_home() {
+  local old="$DATA/adobewine" new="$DATA/photoshopwine" s p
+  if [ -e "$new" ] || [ -L "$new" ] || [ ! -d "$old" ] || [ -L "$old" ]; then echo "$new"; return; fi
+  s="$(stat -c '%D %i' "$old/prefix" 2>/dev/null || true)"
+  if [ -n "$s" ]; then
+    s="/tmp/.wine-$(id -u)/server-${s% *}-$(printf '%x' "${s#* }")"
+    for p in /proc/[0-9]*; do
+      if [ "$(readlink "$p/cwd" 2>/dev/null)" = "$s" ]; then echo "$old"; return; fi
+    done
+  fi
+  if mv "$old" "$new" 2>/dev/null; then
+    ln -s photoshopwine "$old" 2>/dev/null || true
+    echo "$new"
+  else
+    echo "$old"
+  fi
+}
+
+export PHOTOSHOPWINE_HOME="${PHOTOSHOPWINE_HOME:-$(pick_home)}"
+export WINEPREFIX="${WINEPREFIX:-$PHOTOSHOPWINE_HOME/prefix}"
+RUNTIME="$PHOTOSHOPWINE_HOME/runtime"
 STAMP="$RUNTIME/.photoshopwine"
 MARKER="$WINEPREFIX/.photoshopwine-setup"
 PF="$WINEPREFIX/drive_c/Program Files/Adobe"
 CCEXE="$PF/Adobe Creative Cloud/ACC/Creative Cloud.exe"
 CCURL="https://creativecloud.adobe.com/apps/download/creative-cloud"
-LOG="$ADOBEWINE_HOME/logs/install-$(date +%Y%m%d-%H%M%S).log"
+LOG="$PHOTOSHOPWINE_HOME/logs/install-$(date +%Y%m%d-%H%M%S).log"
 MODE=install
 SETUP_ARG=""
 CC_SETUP=""
@@ -137,7 +156,7 @@ find_cc_setup() {
 }
 
 get_source() {
-  local self="${BASH_SOURCE[0]:-}" dest="$DATA/photoshopwine"
+  local self="${BASH_SOURCE[0]:-}" dest="$PHOTOSHOPWINE_HOME/checkout"
   if [ -n "$self" ] && [ -f "$self" ] && [ -x "$(dirname "$self")/bin/photoshopwine" ]; then
     SRC="$(cd "$(dirname "$self")" && pwd -P)"
     return
@@ -212,7 +231,7 @@ release_available() {
 }
 
 fetch_runtime() {
-  local new="$ADOBEWINE_HOME/runtime.new" want got
+  local new="$PHOTOSHOPWINE_HOME/runtime.new" want got
   say "Downloading the Wine runtime"
   if [ -t 2 ]; then curl -fL --retry 3 --progress-bar -o "$DL/$NAME.part" "$URL"
   else log curl -fsSL --retry 3 -o "$DL/$NAME.part" "$URL"; fi
@@ -226,12 +245,12 @@ fetch_runtime() {
   mkdir -p "$new"
   log tar -C "$new" -I zstd -xf "$DL/$NAME.part"
   [ -x "$new/runtime/bin/wine" ] || die "The downloaded runtime is incomplete. Details are in $LOG"
-  rm -rf "$ADOBEWINE_HOME/runtime.old"
-  if [ -e "$RUNTIME" ] || [ -L "$RUNTIME" ]; then mv "$RUNTIME" "$ADOBEWINE_HOME/runtime.old"; fi
+  rm -rf "$PHOTOSHOPWINE_HOME/runtime.old"
+  if [ -e "$RUNTIME" ] || [ -L "$RUNTIME" ]; then mv "$RUNTIME" "$PHOTOSHOPWINE_HOME/runtime.old"; fi
   mv "$new/runtime" "$RUNTIME"
   if [ -d "$new/helpers" ]; then mkdir -p "$SRC/lib"; cp "$new/helpers"/* "$SRC/lib/"; fi
   echo "release $VERSION" > "$STAMP"
-  rm -rf "$new" "$ADOBEWINE_HOME/runtime.old" "$DL/$NAME.part" "$DL/$NAME.sha256"
+  rm -rf "$new" "$PHOTOSHOPWINE_HOME/runtime.old" "$DL/$NAME.part" "$DL/$NAME.sha256"
 }
 
 build_runtime() {
@@ -354,7 +373,7 @@ main() {
   VERSION="$(tr -d '[:space:]' < "$SRC/VERSION")"
   NAME="photoshopwine-runtime-$VERSION-x86_64.tar.zst"
   URL="$RELEASES/v$VERSION/$NAME"
-  DL="$ADOBEWINE_HOME/downloads"
+  DL="$PHOTOSHOPWINE_HOME/downloads"
   get_runtime
   link_command
   run_setup

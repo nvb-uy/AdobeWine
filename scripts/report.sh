@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# AdobeWine problem/usage report.
-#   adobewine report [--app NAME] [--log FILE] [--note TEXT] [--auto] [--save-only]
+# PhotoshopWine problem/usage report.
+#   photoshopwine report [--app NAME] [--log FILE] [--note TEXT] [--auto] [--save-only]
 # Without --note it asks you what you were doing.
 #
-# Collects the hardware, drivers, distribution, AdobeWine and Adobe app versions, what was
+# Collects the hardware, drivers, distribution, PhotoshopWine and Adobe app versions, what was
 # run, and the end of that run's log. Personal data is removed (user and host names, home
 # paths, e-mail and IP addresses, anything that looks like a token), and you see the
 # report before anything is sent. Nothing is ever sent without either your "yes" or
-# REPORTS=auto in ~/.config/adobewine/config.
+# REPORTS=auto in ~/.config/photoshopwine/config.
 #
 # Sending: with the GitHub CLI logged in (`gh auth login`), the report becomes an issue
-# labelled "report" in the AdobeWine repository. Without it, your browser opens a
+# labelled "report" in the PhotoshopWine repository. Without it, your browser opens a
 # pre-filled issue page for you to submit. Reports are always saved in
-# ~/.local/share/adobewine/reports/ as well.
+# ~/.local/share/photoshopwine/reports/ as well.
 set -uo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd)/bin/env.sh"
-CONF="${XDG_CONFIG_HOME:-$HOME/.config}/adobewine/config"
+CONF="$PHOTOSHOPWINE_CONFIG"
 [ -f "$CONF" ] && source "$CONF"
-REPO="${ADOBEWINE_REPO:-le-birnes/AdobeWine}"
+REPO="${PHOTOSHOPWINE_REPORT_REPO:-nvb-uy/PhotoshopWine}"
 REPORTS="${REPORTS:-ask}"
 
 APP="" LOG="" NOTE="" AUTO=0 SAVE_ONLY=0 EXIT_CODE="" DURATION=""
@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown option $1" >&2; exit 1 ;;
   esac
 done
-[ -n "$LOG" ] || LOG="$(ls -t "$ADOBEWINE_HOME"/logs/*.log 2>/dev/null | head -1)"
+[ -n "$LOG" ] || LOG="$(ls -t "$PHOTOSHOPWINE_HOME"/logs/*.log 2>/dev/null | head -1)"
 if [ -z "$NOTE" ] && [ "$AUTO" = 0 ] && [ "$SAVE_ONLY" = 0 ] && [ -t 0 ]; then
   echo "In a sentence or two: what were you doing, and what went wrong? (Enter to skip)"
   read -r -p "> " NOTE
@@ -50,8 +50,8 @@ vk="$(command -v vulkaninfo >/dev/null && vulkaninfo --summary 2>/dev/null | gre
 mesa="$(command -v pacman >/dev/null && pacman -Q mesa 2>/dev/null; command -v dpkg-query >/dev/null && dpkg-query -W libgl1-mesa-dri 2>/dev/null; command -v rpm >/dev/null && rpm -q mesa-dri-drivers 2>/dev/null)"
 desktop="${XDG_CURRENT_DESKTOP:-unknown} (${XDG_SESSION_TYPE:-unknown} session)"
 wine_ver="$(wine --version 2>/dev/null || echo 'no runtime')"
-aw_ver="$(cat "$ADOBEWINE_SRC/VERSION" 2>/dev/null || git -C "$ADOBEWINE_SRC" describe --tags --always 2>/dev/null || echo unknown)"
-deps="$(ls -d "$ADOBEWINE_HOME"/deps/*/ 2>/dev/null | xargs -r -n1 basename | tr '\n' ' ')"
+psw_ver="$(cat "$PHOTOSHOPWINE_SRC/VERSION" 2>/dev/null || git -C "$PHOTOSHOPWINE_SRC" describe --tags --always 2>/dev/null || echo unknown)"
+deps="$(ls -d "$PHOTOSHOPWINE_HOME"/deps/*/ 2>/dev/null | xargs -r -n1 basename | tr '\n' ' ')"
 apps="$(ls -d "$WINEPREFIX/drive_c/Program Files/Adobe/"*/ 2>/dev/null | xargs -r -d '\n' -n1 basename | tr '\n' ',' | sed 's/,$//; s/,/, /g')"
 ntsync="$([ -e /dev/ntsync ] && echo yes || echo no)"
 crash="$([ -n "$LOG" ] && grep -m3 -E 'Unhandled exception|Unhandled page fault|page fault on|Assertion .* failed' "$LOG" | cut -c1-200)"
@@ -73,10 +73,10 @@ wine_left="$(echo "$procs" | grep -ciE ' [^ ]*\.exe$| wineserver$' || true)"
 shm="$(du -sh /dev/shm 2>/dev/null | cut -f1)"
 
 TS="$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$ADOBEWINE_HOME/reports"
-OUT="$ADOBEWINE_HOME/reports/report-$TS.md"
+mkdir -p "$PHOTOSHOPWINE_HOME/reports"
+OUT="$PHOTOSHOPWINE_HOME/reports/report-$TS.md"
 {
-  echo "### AdobeWine report"
+  echo "### PhotoshopWine report"
   echo
   echo "| | |"
   echo "|---|---|"
@@ -84,7 +84,7 @@ OUT="$ADOBEWINE_HOME/reports/report-$TS.md"
   [ -n "$EXIT_CODE" ] && echo "| Exit code | $EXIT_CODE |"
   [ -n "$DURATION" ] && echo "| Ran for | ${DURATION}s |"
   echo "| Crash detected | $([ -n "$crash" ] && echo yes || echo no) |"
-  echo "| AdobeWine | $aw_ver ($wine_ver) |"
+  echo "| PhotoshopWine | $psw_ver ($wine_ver) |"
   echo "| Translation layers | ${deps:-not downloaded} |"
   echo "| Adobe apps in prefix | ${apps:-none} |"
   echo "| Distribution | $os |"
@@ -135,7 +135,7 @@ rm -f "$OUT.raw"
 echo "report saved: $OUT"
 [ "$SAVE_ONLY" = 1 ] && exit 0
 
-title="[report] ${APP:-adobewine}: $([ -n "$crash" ] && echo crash || echo feedback) on ${os}"
+title="[report] ${APP:-photoshop}: $([ -n "$crash" ] && echo crash || echo feedback) on ${os}"
 send_gh() { gh issue create -R "$REPO" --title "$title" --body-file "$OUT" --label report; }
 gh_ok() { command -v gh >/dev/null && gh auth status -h github.com >/dev/null 2>&1; }
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Download the pinned graphics/GPU translation layers into $ADOBEWINE_HOME/deps and check them.
+# Download the pinned graphics/GPU translation layers into $PHOTOSHOPWINE_HOME/deps and check them.
 set -euo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd)/bin/env.sh"
-D="$ADOBEWINE_HOME/deps"; mkdir -p "$D"; cd "$D"
+D="$PHOTOSHOPWINE_HOME/deps"; mkdir -p "$D"; cd "$D"
 fetch() {  # fetch <url> <sha256>
   local f="${1##*/}"
   if [ ! -f "$f" ]; then

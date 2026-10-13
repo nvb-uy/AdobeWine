@@ -7,7 +7,7 @@ On KDE the colours come from the colour scheme (kdeglobals), elsewhere from a bu
 Adwaita dark or Windows light palette chosen by the desktop portal's colour scheme. The
 result goes into the registry with regedit; a copy is kept in the prefix and regedit only
 runs when something changed (or with --force). Programs started afterwards pick it up.
-The DPI is DPI= from ~/.config/adobewine/config, else Xft.dpi, else GNOME's text scaling.
+The DPI is DPI= from ~/.config/photoshopwine/config, else Xft.dpi, else GNOME's text scaling.
 """
 import configparser
 import json
@@ -18,7 +18,7 @@ import sys
 
 HOME = os.path.expanduser("~")
 CONFIG = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
-PREFIX = os.environ.get("WINEPREFIX") or os.path.join(HOME, ".local/share/adobewine/prefix")
+PREFIX = os.environ.get("WINEPREFIX") or os.path.join(HOME, ".local/share/photoshopwine/prefix")
 WHITE, BLACK = (255, 255, 255), (0, 0, 0)
 
 
@@ -171,7 +171,7 @@ def xft_dpi():
 def dpi():
     value = None
     try:
-        m = re.search(r"^\s*DPI=[\"']?([0-9]+)", open(os.path.join(CONFIG, "adobewine/config")).read(), re.M)
+        m = re.search(r"^\s*DPI=[\"']?([0-9]+)", open(os.environ.get("PHOTOSHOPWINE_CONFIG") or os.path.join(CONFIG, "photoshopwine/config")).read(), re.M)
         value = m and int(m.group(1))
     except OSError:
         pass

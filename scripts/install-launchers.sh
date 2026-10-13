@@ -13,7 +13,6 @@ refresh() {
   [ -d "$DATA/mime/packages" ] && { update-mime-database "$DATA/mime" >/dev/null 2>&1 || true; }
   return 0
 }
-rm -f "$APPS"/adobewine-*.desktop "$ICONS"/hicolor/*/apps/adobewine-*.png
 if [ "${1:-}" = --remove ]; then
   for n in $NAMES; do rm -f "$APPS/adobe-$n.desktop" "$ICONS"/hicolor/*/apps/"adobe-$n.png"; done
   rm -f "$DATA/mime/packages/adobe-photoshop.xml"
@@ -23,8 +22,7 @@ fi
 mkdir -p "$APPS"
 PF="$WINEPREFIX/drive_c/Program Files/Adobe"
 quote() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\\\\\/g' -e 's/["`$]/\\\\&/g' -e 's/%/%%/g')"; }
-EXEC="$(quote "$ADOBEWINE_SRC/bin/adobewine")"
-PSW="$(quote "$ADOBEWINE_SRC/bin/photoshopwine")"
+EXEC="$(quote "$PHOTOSHOPWINE_SRC/bin/photoshopwine")"
 CC="$PF/Adobe Creative Cloud/ACC/Creative Cloud.exe"
 latest() {  # newest installed release folder of an app, e.g. "Adobe Photoshop 2025"
   local d; d="$(ls -d "$PF/$1 20"[0-9][0-9] 2>/dev/null | sort -V | tail -1)"
@@ -33,7 +31,7 @@ latest() {  # newest installed release folder of an app, e.g. "Adobe Photoshop 2
 icon() {
   local f
   for f in "$2" "$(dirname "$2")"/*Application_Icon*.ico; do
-    [ -f "$f" ] && python3 -I "$ADOBEWINE_SRC/scripts/exe-icon.py" "$f" "$ICONS" "adobe-$1" 2>/dev/null && return
+    [ -f "$f" ] && python3 -I "$PHOTOSHOPWINE_SRC/scripts/exe-icon.py" "$f" "$ICONS" "adobe-$1" 2>/dev/null && return
   done
   return 0
 }
@@ -42,7 +40,7 @@ entry() {
   icon "$1" "$2"
   local f="$APPS/adobe-$1.desktop" files=" %F" actions="quit-all;" x="$EXEC" app=" $1"
   [ "$1" = cc ] && files=""
-  [ "$1" = photoshop ] && { x="$PSW"; app=""; }
+  [ "$1" = photoshop ] && app=""
   [ "$1" = photoshop ] && [ -f "$CC" ] && actions="creative-cloud;quit-all;"
   {
     echo "[Desktop Entry]"

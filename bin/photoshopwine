@@ -10,17 +10,165 @@
 #   photoshopwine launchers [--remove]         add Photoshop to the desktop menu
 #   photoshopwine report [--note "..."]        send a problem report (you see it first)
 #   photoshopwine winecfg|regedit|shell        Wine tools for this prefix
+#   photoshopwine illustrator|premiere|audition|encoder|aftereffects [files...]  other Adobe apps (unsupported)
 self="$(readlink -f "$0")"
 here="$(dirname "$self")"
-case "${1:-}" in
-  setup|run|cc|off|launchers|report|fix-signin|winecfg|regedit|shell)
-    exec "$here/adobewine" "$@" ;;
+cmd="${1:-}"
+case "$cmd" in
+  photoshop|illustrator|premiere|audition|encoder|aftereffects|cc|run|setup|launchers|report|winecfg|regedit|shell|off|fix-signin) shift ;;
   update)
-    shift
     [ -f "$here/../install.sh" ] || { echo "This copy of PhotoshopWine is managed by your package manager; update it there." >&2; exit 1; }
     exec bash "$here/../install.sh" --update ;;
   -h|--help)
-    sed -n '2,12p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
-  *)
-    exec "$here/adobewine" photoshop "$@" ;;
+    sed -n '2,13p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) cmd=photoshop ;;
 esac
+source "$here/env.sh"
+P='C:\Program Files\Adobe'
+latest() {
+  local d; d="$(ls -d "$WINEPREFIX/drive_c/Program Files/Adobe/$1 20"[0-9][0-9] 2>/dev/null | sort -V | tail -1)"
+  basename "${d:-$1 2026}"
+}
+case "$cmd" in
+  photoshop)   exe="$P\\$(latest "Adobe Photoshop")\\Photoshop.exe" ;;
+  illustrator) exe="$P\\$(latest "Adobe Illustrator")\\Support Files\\Contents\\Windows\\Illustrator.exe" ;;
+  premiere)    exe="$P\\$(latest "Adobe Premiere Pro")\\Adobe Premiere Pro.exe" ;;
+  audition)    exe="$P\\$(latest "Adobe Audition")\\Adobe Audition.exe" ;;
+  encoder)     exe="$P\\$(latest "Adobe Media Encoder")\\Adobe Media Encoder.exe" ;;
+  aftereffects) exe="$P\\$(latest "Adobe After Effects")\\Support Files\\AfterFX.exe" ;;
+  cc)          exe="$P\\Adobe Creative Cloud\\ACC\\Creative Cloud.exe" ;;
+  run)
+    [ $# -gt 0 ] || { echo "usage: photoshopwine run <program.exe> [args...]" >&2; exit 1; }
+    exe="$1"; shift ;;
+  setup)       exec "$PHOTOSHOPWINE_SRC/scripts/setup-prefix.sh" "$@" ;;
+  launchers)   exec "$PHOTOSHOPWINE_SRC/scripts/install-launchers.sh" "$@" ;;
+  report)      exec "$PHOTOSHOPWINE_SRC/scripts/report.sh" "$@" ;;
+  winecfg|regedit) exec wine "$cmd" ;;
+  shell)       exec bash --rcfile <(echo "source '$PHOTOSHOPWINE_SRC/bin/env.sh'; PS1='(photoshopwine) \\w \$ '") ;;
+  off)
+    if [ "${1:-}" != --force ]; then
+      W="$PHOTOSHOPWINE_SRC/lib/winclose.exe"
+      [ -f "$W" ] || W="$PHOTOSHOPWINE_HOME/winclose.exe"
+      [ -f "$W" ] || x86_64-w64-mingw32-gcc -O2 -o "$W" "$PHOTOSHOPWINE_SRC/tools/winclose/winclose.c"
+      wine "$W" Photoshop.exe Illustrator.exe "Adobe Audition.exe" "Adobe Premiere Pro.exe" "Adobe Media Encoder.exe" >/dev/null 2>&1
+      apps='^(Photoshop|Illustrator|Adobe Audition|Adobe Premiere Pro|Adobe Media Encoder)\.exe'
+      for _ in $(seq 60); do wine tasklist 2>/dev/null | grep -qiE "$apps" || break; sleep 1; done
+      if wine tasklist 2>/dev/null | grep -qiE "$apps"; then
+        if [ -t 1 ]; then echo "An Adobe app is still open (maybe asking to save). Close it, or run: photoshopwine off --force"
+        elif command -v notify-send >/dev/null; then notify-send -i dialog-information "Adobe apps are still open" "Close them and try again."
+        fi
+        exit 1
+      fi
+    fi
+    wineserver -k; [ -t 1 ] && echo "All Adobe apps stopped."; exit 0 ;;
+  fix-signin)
+    f="$WINEPREFIX/drive_c/Program Files (x86)/Common Files/Adobe/Adobe Desktop Common/NGL/adobe_licensing_wf.exe"
+    [ -f "$f" ] && mv "$f" "$f.disabled" && echo "done" || echo "nothing to do (helper not present or already renamed)"
+    exit 0 ;;
+esac
+users="$WINEPREFIX/drive_c/users"
+u="${USER:-}"
+if [ -z "$u" ] || [ ! -d "$users/$u" ]; then
+  u=""
+  for d in "$users"/*/; do
+    d="${d%/}"; [ -d "$d" ] && [ "${d##*/}" != Public ] && { u="${d##*/}"; break; }
+  done
+fi
+winpath() {
+  local p l t best="" dir=""
+  p="$(realpath "$1")"
+  if [ -n "$u" ]; then
+    for l in "$users/$u"/{Desktop,Documents,Downloads,Music,Pictures,Videos}; do
+      [ -L "$l" ] || continue
+      t="$(readlink -f "$l")"
+      [ -n "$t" ] && [ "$t" != / ] && [ "$t" != "$HOME" ] || continue
+      case "$p" in
+        "$t"|"$t"/*) [ ${#t} -gt ${#best} ] && { best="$t"; dir="${l##*/}"; } ;;
+      esac
+    done
+  fi
+  if [ -n "$best" ]; then p="C:/users/$u/$dir${p#"$best"}"; else p="Z:$p"; fi
+  echo "${p//\//\\}"
+}
+args=()
+for a in "$@"; do
+  if [ -e "$a" ]; then args+=("$(winpath "$a")"); else args+=("$a"); fi
+done
+[ "$cmd" = cc ] && args=(--disable-gpu-vsync "${args[@]}")
+name="${exe##*\\}"
+i="adobe-$cmd"
+case "$cmd" in
+  photoshop)    t="Adobe Photoshop" ;;
+  illustrator)  t="Adobe Illustrator" ;;
+  premiere)     t="Adobe Premiere Pro" ;;
+  audition)     t="Adobe Audition" ;;
+  encoder)      t="Adobe Media Encoder" ;;
+  aftereffects) t="Adobe After Effects" ;;
+  cc)           t="Adobe Creative Cloud" ;;
+  *)            t="${name%.exe}"; i=dialog-warning ;;
+esac
+windows() {
+  python3 -c "
+import sys
+from Xlib import display
+d = display.Display()
+n = 0
+for w in d.screen().root.query_tree().children:
+    try:
+        c = w.get_wm_class()
+        n += bool(c and c[1].lower() == sys.argv[1].lower() and w.get_attributes().map_state == 2)
+    except Exception:
+        pass
+print(n)" "$name" 2>/dev/null
+}
+if [ "$cmd" != run ]; then
+  has_win="$(windows)"
+  if [ -n "$has_win" ] && [ "$has_win" != 0 ]; then
+    wine "$exe" "${args[@]}" >/dev/null 2>&1
+    exit $?
+  fi
+  if wine tasklist 2>/dev/null | grep -qiF "$name"; then
+    running=1
+    for _ in $(seq 10); do
+      sleep 1
+      wine tasklist 2>/dev/null | grep -qiF "$name" || { running=; break; }
+    done
+    if [ -n "$running" ]; then
+      has_win="$(windows)"
+      if [ "$has_win" = 0 ]; then
+        wine taskkill /f /im "$name" >/dev/null 2>&1
+        echo "A previous ${name%.exe} was stuck closing (no window); ended it."
+      elif [ -z "$has_win" ]; then
+        echo "${name%.exe} is still running. If nothing opens, it may be stuck closing: photoshopwine off"
+      fi
+    fi
+  fi
+fi
+core_fonts() {
+  local d="$WINEPREFIX/drive_c/Program Files/Common Files/Adobe/Fonts"
+  [ -f "$d/MyriadPro-Regular.otf" ] && return
+  find "$WINEPREFIX/drive_c/Program Files/Adobe" -path '*/Required/Fonts/*' \( -iname 'MyriadPro-*.otf' -o -iname 'MinionPro-*.otf' \) 2>/dev/null |
+    while read -r f; do mkdir -p "$d"; cp -n "$f" "$d/"; done
+}
+core_fonts
+log="$PHOTOSHOPWINE_HOME/logs/$cmd-$(date +%Y%m%d-%H%M%S).log"
+[ -t 1 ] && echo "log: $log"
+stamp="$({ tr -d '\r\n' < "$WINEPREFIX/.update-timestamp"; } 2>/dev/null)"
+inf="$(stat -c %Y "$PHOTOSHOPWINE_RUNTIME/share/wine/wine.inf" 2>/dev/null)"
+if [ -n "$inf" ] && [ "${stamp#disable}" = "$stamp" ] && [ "$stamp" != "$inf" ] && command -v notify-send >/dev/null; then
+  notify-send -a "$t" -i "$i" "$t is getting ready" "The first start after an update takes a little longer."
+fi
+python3 -I "$PHOTOSHOPWINE_SRC/scripts/desktop-settings.py"
+start=$SECONDS
+wine "$exe" "${args[@]}" > "$log" 2>&1
+rc=$?
+REPORTS=ask; [ -f "$PHOTOSHOPWINE_CONFIG" ] && source "$PHOTOSHOPWINE_CONFIG"
+if [ "$REPORTS" != off ] && [ "$rc" != 0 ] && grep -qE 'Unhandled exception|Unhandled page fault|page fault on' "$log"; then
+  r=("$PHOTOSHOPWINE_SRC/scripts/report.sh" --app "$cmd" --log "$log" --exit-code "$rc" --duration $((SECONDS - start)))
+  if [ "$REPORTS" = auto ]; then "${r[@]}" --auto >/dev/null 2>&1
+  elif [ -t 0 ]; then echo "$t quit unexpectedly."; "${r[@]}"
+  else "${r[@]}" --save-only >/dev/null 2>&1
+       command -v notify-send >/dev/null && notify-send -a "$t" -i "$i" "$t quit unexpectedly" "A problem report was saved."
+  fi
+fi
+exit $rc

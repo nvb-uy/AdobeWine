@@ -46,8 +46,8 @@ step "system"
 echo "glibc: $(ldd --version | head -1 | sed 's/.* //')"
 
 step "unpack release"
-tar -C / -xf /release/adobewine.tar.zst && echo "unpack: OK"
-R=/opt/adobewine/runtime
+mkdir -p /opt/photoshopwine && tar -C /opt/photoshopwine -I zstd -xf /release/photoshopwine.tar.zst && echo "unpack: OK"
+R=/opt/photoshopwine/runtime
 
 step "missing shared libraries"
 # ntdll.so and win32u.so are Wine's own and are loaded by Wine itself, not through ldd's path
@@ -57,12 +57,12 @@ if [ -n "$missing" ]; then echo "$missing"; else echo "missing: none"; fi
 step "run as a normal user"
 useradd -m tester 2>/dev/null
 su tester -c '
-  export PATH=/opt/adobewine/runtime/bin:$PATH WINEPREFIX=$HOME/pfx WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=" DISPLAY=
+  export PATH=/opt/photoshopwine/runtime/bin:$PATH WINEPREFIX=$HOME/pfx WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=" DISPLAY=
   echo "wine: $(wine --version)"
   timeout 300 wineboot -i >/dev/null 2>&1; echo "wineboot exit: $?"
   echo "64-bit: $(timeout 60 wine cmd /c echo ok64 2>/dev/null | tr -d "\r")"
   echo "32-bit (WoW64): $(timeout 60 wine C:\\windows\\syswow64\\cmd.exe /c echo ok32 2>/dev/null | tr -d "\r")"
   echo "version: $(timeout 60 wine cmd /c ver 2>/dev/null | tr -d "\r" | grep -v "^$")"
-  /opt/adobewine/bin/adobewine --help >/dev/null 2>&1 && echo "adobewine --help: OK"
+  /src/bin/photoshopwine --help >/dev/null 2>&1 && echo "photoshopwine --help: OK"
   wineserver -k 2>/dev/null
 '

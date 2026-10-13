@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Create or refresh the AdobeWine prefix. Safe to run again.
+# Create or refresh the PhotoshopWine prefix. Safe to run again.
 # Usage: scripts/setup-prefix.sh [--windows-fonts DIR] [--dpi N]
 #   --windows-fonts DIR   copy fonts from your own Windows installation (its C:\Windows\Fonts
 #                         folder, e.g. a mounted Windows partition). Strongly recommended:
 #                         Adobe's UI asks for Segoe UI, and Photoshop's menu bar crashes without it.
 #   --dpi N|auto          UI scaling for the Adobe apps in DPI (96 = 100%, 144 = 150%, 192 = 200%),
-#                         kept in ~/.config/adobewine/config. Default (auto): your desktop's scale
+#                         kept in ~/.config/photoshopwine/config. Default (auto): your desktop's scale
 #                         (Xft.dpi), read again at each launch; 96 when it cannot be read.
 set -euo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd)/bin/env.sh"
@@ -19,10 +19,10 @@ while [ $# -gt 0 ]; do
     *) echo "unknown option $1" >&2; exit 1 ;;
   esac
 done
-[ -x "$ADOBEWINE_RUNTIME/bin/wine" ] || { echo "no AdobeWine runtime: install the adobewine package or run scripts/build-wine.sh" >&2; exit 1; }
+[ -x "$PHOTOSHOPWINE_RUNTIME/bin/wine" ] || { echo "no PhotoshopWine runtime: run install.sh or scripts/build-wine.sh" >&2; exit 1; }
 command -v winetricks >/dev/null || { echo "winetricks is required (install it from your distribution)" >&2; exit 1; }
-DEPS="$ADOBEWINE_HOME/deps"
-ls -d "$DEPS"/dxvk-*/ >/dev/null 2>&1 || "$ADOBEWINE_SRC/scripts/fetch-deps.sh"
+DEPS="$PHOTOSHOPWINE_HOME/deps"
+ls -d "$DEPS"/dxvk-*/ >/dev/null 2>&1 || "$PHOTOSHOPWINE_SRC/scripts/fetch-deps.sh"
 SYS="$WINEPREFIX/drive_c/windows/system32"
 SYS32="$WINEPREFIX/drive_c/windows/syswow64"
 
@@ -34,11 +34,11 @@ for a in "gecko 2.47.4 x86" "gecko 2.47.4 x86_64" "mono 11.3.0 x86"; do
   read -r kind ver arch <<< "$a"
   f="wine-$kind-$ver-$arch.msi"
   [ -f "$CACHE/$f" ] && continue
-  if [ -f "$ADOBEWINE_HOME/cache/$kind/$f" ]; then mv "$ADOBEWINE_HOME/cache/$kind/$f" "$CACHE/$f"; continue; fi
+  if [ -f "$PHOTOSHOPWINE_HOME/cache/$kind/$f" ]; then mv "$PHOTOSHOPWINE_HOME/cache/$kind/$f" "$CACHE/$f"; continue; fi
   curl -fsSL -o "$CACHE/$f.part" "https://dl.winehq.org/wine/wine-$kind/$ver/$f"
   mv "$CACHE/$f.part" "$CACHE/$f"
 done
-rmdir "$ADOBEWINE_HOME/cache/gecko" "$ADOBEWINE_HOME/cache/mono" "$ADOBEWINE_HOME/cache" 2>/dev/null || true
+rmdir "$PHOTOSHOPWINE_HOME/cache/gecko" "$PHOTOSHOPWINE_HOME/cache/mono" "$PHOTOSHOPWINE_HOME/cache" 2>/dev/null || true
 
 [ -f "$WINEPREFIX/system.reg" ] || wineboot -i
 wineserver -w
@@ -47,7 +47,7 @@ wineserver -w
 
 # Microsoft's shader compiler (Audition compiles HLSL at run time) and the core fonts
 # (the Creative Cloud renderer crashes without real Windows fonts).
-[ -f "$WINEPREFIX/.adobewine-d3dcompiler" ] || { winetricks -q d3dcompiler_47 && touch "$WINEPREFIX/.adobewine-d3dcompiler"; }
+[ -f "$WINEPREFIX/.photoshopwine-d3dcompiler" ] || [ -f "$WINEPREFIX/.adobewine-d3dcompiler" ] || { winetricks -q d3dcompiler_47 && touch "$WINEPREFIX/.photoshopwine-d3dcompiler"; }
 [ -f "$WINEPREFIX/drive_c/windows/Fonts/arial.ttf" ] || winetricks -q corefonts tahoma
 # WinRT classes added by the patches (0031 ToastNotificationManager) need registering.
 wine regsvr32 /s windows.ui.dll
@@ -62,12 +62,12 @@ done
 for d in d3d12 d3d12core; do
   cp "$DEPS"/vkd3d-proton-*/x64/$d.dll "$SYS/"; cp "$DEPS"/vkd3d-proton-*/x86/$d.dll "$SYS32/"; override $d
 done
-if [ -f "$ADOBEWINE_SRC/lib/d3d12.dll" ]; then
-  mv "$SYS/d3d12.dll" "$SYS/d3d12_vkd3d.dll"; cp "$ADOBEWINE_SRC/lib/d3d12.dll" "$SYS/d3d12.dll"
+if [ -f "$PHOTOSHOPWINE_SRC/lib/d3d12.dll" ]; then
+  mv "$SYS/d3d12.dll" "$SYS/d3d12_vkd3d.dll"; cp "$PHOTOSHOPWINE_SRC/lib/d3d12.dll" "$SYS/d3d12.dll"
 elif command -v x86_64-w64-mingw32-gcc >/dev/null; then
   mv "$SYS/d3d12.dll" "$SYS/d3d12_vkd3d.dll"
-  x86_64-w64-mingw32-gcc -O2 -shared -o "$SYS/d3d12.dll" "$ADOBEWINE_SRC/shims/d3d12/d3d12shim.c" \
-      "$ADOBEWINE_SRC/shims/d3d12/d3d12.def" -Wl,--enable-stdcall-fixup
+  x86_64-w64-mingw32-gcc -O2 -shared -o "$SYS/d3d12.dll" "$PHOTOSHOPWINE_SRC/shims/d3d12/d3d12shim.c" \
+      "$PHOTOSHOPWINE_SRC/shims/d3d12/d3d12.def" -Wl,--enable-stdcall-fixup
 else
   echo "note: no MinGW compiler, skipping the d3d12 shim (Adobe AI features may be unavailable)" >&2
 fi
@@ -80,10 +80,10 @@ fi
 # the override would cap them.
 ENVKEY='HKCU\Environment'
 wine reg delete "$ENVKEY" /v VKD3D_FEATURE_LEVEL /f >/dev/null 2>&1 || true
-FL="$ADOBEWINE_SRC/lib/d3d12fl.exe"
-[ -f "$FL" ] || FL="$ADOBEWINE_HOME/d3d12fl.exe"
+FL="$PHOTOSHOPWINE_SRC/lib/d3d12fl.exe"
+[ -f "$FL" ] || FL="$PHOTOSHOPWINE_HOME/d3d12fl.exe"
 if [ ! -f "$FL" ] && command -v x86_64-w64-mingw32-gcc >/dev/null; then
-  x86_64-w64-mingw32-gcc -O2 -o "$FL" "$ADOBEWINE_SRC/tools/d3d12fl/d3d12fl.c"
+  x86_64-w64-mingw32-gcc -O2 -o "$FL" "$PHOTOSHOPWINE_SRC/tools/d3d12fl/d3d12fl.c"
 fi
 if [ -f "$FL" ]; then
   levels="$(env -u VKD3D_FEATURE_LEVEL wine "$FL" 2>/dev/null | tr -d '\r')" && rc=0 || rc=$?
@@ -123,7 +123,7 @@ wine reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /
 wine reg add 'HKCU\Software\Wine\Explorer' /v ShowSystray /t REG_DWORD /d 0 /f >/dev/null
 wine reg add 'HKCU\Software\Wine\DllOverrides' /v winemenubuilder.exe /d '' /f >/dev/null
 if [ -n "$DPI" ]; then
-  conf="${XDG_CONFIG_HOME:-$HOME/.config}/adobewine/config"
+  conf="$PHOTOSHOPWINE_CONFIG"
   mkdir -p "${conf%/*}"; touch "$conf"
   sed -i '/^DPI=/d' "$conf"
   [ "$DPI" = auto ] || echo "DPI=$DPI" >> "$conf"
@@ -139,14 +139,14 @@ elif ! ls "$WINEPREFIX/drive_c/windows/Fonts/"segoeui.ttf >/dev/null 2>&1; then
   # FontSubstitutes, and Photoshop's menu bar hangs the UI without that family.
   mapfile -t selawik < <(fc-list -f '%{file}\n' :family=Selawik 2>/dev/null)
   if [ "${#selawik[@]}" -gt 0 ] &&
-     python3 "$ADOBEWINE_SRC/scripts/selawik-as-segoe.py" "$WINEPREFIX/drive_c/windows/Fonts" "${selawik[@]}" >/dev/null; then
+     python3 "$PHOTOSHOPWINE_SRC/scripts/selawik-as-segoe.py" "$WINEPREFIX/drive_c/windows/Fonts" "${selawik[@]}" >/dev/null; then
     echo "note: no Windows fonts given; Segoe UI was made from Selawik." >&2
   else
     echo "note: Segoe UI is missing. Run again with --windows-fonts <your Windows Fonts folder>," >&2
     echo "      or install the Selawik fonts and run setup again." >&2
   fi
 fi
-"$ADOBEWINE_SRC/scripts/register-fonts.sh"
-python3 -I "$ADOBEWINE_SRC/scripts/desktop-settings.py" --force
+"$PHOTOSHOPWINE_SRC/scripts/register-fonts.sh"
+python3 -I "$PHOTOSHOPWINE_SRC/scripts/desktop-settings.py" --force
 wineserver -w
 echo "prefix ready: $WINEPREFIX ($(wine --version))"
