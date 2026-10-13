@@ -5,6 +5,38 @@ This guide is for any Linux distribution. On Arch Linux or an Arch-based distrib
 [INSTALL-ARCH.md](INSTALL-ARCH.md). On Gentoo, use the Portage packages:
 [INSTALL-GENTOO.md](INSTALL-GENTOO.md).
 
+## Quick install
+
+One command does everything below: it checks what your system is missing (and tells you
+what to install), gets PhotoshopWine, downloads the prebuilt runtime for the release (or
+builds it when there is none), creates the prefix, runs the Creative Cloud installer and
+waits while you sign in and install Photoshop from Creative Cloud. Download the Creative
+Cloud installer from <https://creativecloud.adobe.com/apps/download/creative-cloud> first,
+then:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nvb-uy/PhotoshopWine/master/install.sh | bash
+```
+
+It picks the newest `Creative_Cloud_Set-Up*.exe` in your Downloads folder; to use another
+one, add its path: `... | bash -s -- /path/to/Creative_Cloud_Set-Up.exe`. If it stops (or
+you press Ctrl+C while it waits for Photoshop), run it again and it continues where it
+left off. It never uses sudo. PhotoshopWine itself goes to `~/.local/share/photoshopwine`
+and the `photoshopwine` command to `~/.local/bin`.
+
+Afterwards:
+
+```sh
+photoshopwine                    # open Photoshop (or: photoshopwine file.psd)
+photoshopwine update             # update PhotoshopWine, its runtime and the prefix
+photoshopwine setup --windows-fonts /path/to/Windows/Fonts   # optional, see below
+photoshopwine --help             # everything else: cc, off, fix-signin, launchers, report
+```
+
+`photoshopwine` takes the same commands as `adobewine` (used in the rest of this guide),
+and with no command it opens Photoshop. The manual steps below are for building from
+source yourself.
+
 You need:
 
 - a 64-bit x86 PC with a **Vulkan-capable GPU and driver** (NVIDIA proprietary driver,
@@ -162,6 +194,13 @@ To close everything cleanly (the apps may ask to save): `adobewine off`.
 ## Updating AdobeWine
 
 ```sh
+photoshopwine update
+```
+
+This updates the checkout (when it has no local changes), gets the new runtime when the
+release has one (or rebuilds yours if you built it) and runs setup again. By hand:
+
+```sh
 cd AdobeWine && git pull && scripts/build-wine.sh
 ```
 
@@ -174,5 +213,6 @@ notes say so.
 adobewine off
 adobewine launchers --remove
 rm -rf ~/.local/share/adobewine     # removes the prefix, including the installed Adobe apps
-rm ~/.local/bin/adobewine
+rm ~/.local/bin/adobewine ~/.local/bin/photoshopwine
+rm -rf ~/.local/share/photoshopwine # if you used the one-line installer
 ```
