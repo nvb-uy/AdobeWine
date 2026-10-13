@@ -21,7 +21,7 @@ With PhotoshopWine you get a near-native experience with the latest Photoshop ve
 
 ## Install
 
-PhotoshopWine is built from source for now. See [docs/INSTALL.md](docs/INSTALL.md) (or [docs/INSTALL-ARCH.md](docs/INSTALL-ARCH.md) and [docs/INSTALL-GENTOO.md](docs/INSTALL-GENTOO.md)). Once it is installed:
+PhotoshopWine is built from source for now. See [docs/INSTALL.md](docs/INSTALL.md). Once it is installed:
 
 ```sh
 adobewine setup --windows-fonts /path/to/Windows/Fonts  # create the prefix (once)

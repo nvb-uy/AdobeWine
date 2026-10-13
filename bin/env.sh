@@ -11,7 +11,7 @@ ADOBEWINE_SRC="$(cd "$(dirname "$_aw_env")/.." && pwd)"; unset _aw_env
 ADOBEWINE_HOME="${ADOBEWINE_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/adobewine}"
 export ADOBEWINE_SRC ADOBEWINE_HOME
 export WINEPREFIX="${WINEPREFIX:-$ADOBEWINE_HOME/prefix}"
-# Runtime: the packaged one (e.g. /opt/adobewine/runtime from the AUR package) or the one
+# Runtime: the packaged one (e.g. /opt/adobewine/runtime) or the one
 # scripts/build-wine.sh built into $ADOBEWINE_HOME/runtime.
 if [ -x "$ADOBEWINE_SRC/runtime/bin/wine" ]; then ADOBEWINE_RUNTIME="$ADOBEWINE_SRC/runtime"
 else ADOBEWINE_RUNTIME="$ADOBEWINE_HOME/runtime"; fi

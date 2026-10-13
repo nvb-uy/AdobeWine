@@ -66,7 +66,7 @@ Results from other people's machines. Thank you! Add yours with a
 
 The release tarball (`adobewine-0.1.0-x86_64.tar.zst`) was installed in clean containers
 of each distribution, with exactly the runtime dependencies listed in
-[INSTALL.md](INSTALL.md) / [INSTALL-ARCH.md](INSTALL-ARCH.md), and run as a normal user.
+[INSTALL.md](INSTALL.md), and run as a normal user.
 Run it yourself with `tests/distro/check.sh <tarball> [image ...]` (Docker or Podman).
 This checks installation and that Wine works; it cannot check graphics or the Adobe apps,
 which need a real GPU and desktop.
@@ -89,14 +89,14 @@ use the same packages, but were not tested separately.
 
 | Distribution | Install route | Status |
 |---|---|---|
-| CachyOS | AUR (`adobewine-bin` / `adobewine`) | **tested** |
-| Arch Linux, EndeavourOS, Garuda | AUR | Arch: runtime tested in a container; desktop use expected to work (same packages) |
-| Manjaro | AUR | expected to work; Manjaro's repositories lag Arch by a few weeks, so build dependencies may be older |
+| CachyOS | installer, or build from source | **tested** |
+| Arch Linux, EndeavourOS, Garuda | installer, or build from source | Arch: runtime tested in a container; desktop use expected to work (same packages) |
+| Manjaro | installer, or build from source | expected to work; Manjaro's repositories lag Arch by a few weeks, so build dependencies may be older |
 | Fedora 41+ | build from source, or prebuilt | prebuilt runtime tested in a container (Fedora 42); desktop use expected to work; `dnf builddep wine` provides the build dependencies |
 | Debian 13, Ubuntu 24.04+, Linux Mint 22+, Pop!_OS | build from source, or prebuilt | prebuilt runtime tested in containers (Debian 13, Ubuntu 24.04); desktop use expected to work; needs `deb-src` enabled for `apt build-dep wine`; Mesa from the distribution may be older (use the kisak/oibaf PPA on Ubuntu for newer RADV/ANV) |
 | openSUSE Tumbleweed | build from source, or prebuilt | prebuilt runtime tested in a container; desktop use expected to work |
 | openSUSE Leap, Debian 12, Ubuntu 22.04 | build from source | unlikely without newer MinGW/Vulkan headers; not recommended |
-| Gentoo | `::snakebyte` overlay (`app-emulation/adobewine`), see [INSTALL-GENTOO.md](INSTALL-GENTOO.md) | Photoshop 2025 starts on one machine (Intel UHD 620, KDE Plasma Wayland); other apps untested |
+| Gentoo | build from source | Photoshop 2025 starts on one machine (Intel UHD 620, KDE Plasma Wayland); other apps untested |
 | NixOS | build from source in a `nix-shell` with Wine's build inputs | untested; a Nix derivation would be welcome |
 | Fedora Silverblue/Kinoite, Bazzite, SteamOS (Steam Deck) | build and run inside a Distrobox (Arch or Fedora image) | untested; the prefix in `~/.local/share` is shared with the host |
 | Alpine, Void-musl, Chimera | not supported | musl |

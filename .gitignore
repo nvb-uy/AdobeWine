@@ -1,6 +1,3 @@
 *.exe
 *.dll
 *.log
-packaging/aur/*/src/
-packaging/aur/*/pkg/
-packaging/aur/*/*.tar.*

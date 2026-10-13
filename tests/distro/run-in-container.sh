@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs inside a distribution container: installs that distribution's documented runtime
-# dependencies (docs/INSTALL.md, docs/INSTALL-ARCH.md), unpacks the release tarball and
+# dependencies (docs/INSTALL.md), unpacks the release tarball and
 # checks that the runtime loads and can create a prefix. Used by tests/distro/check.sh.
 set -uo pipefail
 distro="$1"

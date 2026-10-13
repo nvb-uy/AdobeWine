@@ -1,9 +1,6 @@
 # Installing AdobeWine
 
-This guide is for any Linux distribution. On Arch Linux or an Arch-based distribution
-(CachyOS, EndeavourOS, Manjaro, Garuda), use the AUR package instead:
-[INSTALL-ARCH.md](INSTALL-ARCH.md). On Gentoo, use the Portage packages:
-[INSTALL-GENTOO.md](INSTALL-GENTOO.md).
+This guide is for any Linux distribution.
 
 ## Quick install
 
@@ -58,6 +55,15 @@ The build needs the usual Wine build dependencies, a MinGW cross-compiler, git a
 winetricks. The commands below are the standard ones for each family. **Only the Arch
 route has been tested so far**; please report how these go.
 
+**Arch Linux and Arch-based (CachyOS, EndeavourOS, Manjaro, Garuda):**
+```sh
+sudo pacman -S --needed base-devel git ccache mingw-w64-gcc winetricks curl zstd ffmpeg \
+     libcups libgphoto2 libxcomposite libxinerama libxxf86vm mesa opencl-headers \
+     opencl-icd-loader pcsclite perl samba sane sdl2 unixodbc v4l-utils vulkan-headers \
+     gst-plugins-good gst-plugins-bad gst-libav
+```
+Multilib is not needed: the runtime is built in Wine's new WoW64 mode.
+
 **Debian 13 / Ubuntu 24.04 or newer** (enable "source code" repositories first):
 ```sh
 sudo apt build-dep wine
@@ -78,6 +84,14 @@ sudo zypper source-install --build-deps-only wine
 sudo zypper install git ccache mingw64-cross-gcc mingw32-cross-gcc winetricks curl zstd \
      gstreamer-plugins-good gstreamer-plugins-bad
 ```
+
+**Gentoo:**
+```sh
+sudo emerge --ask --onlydeps app-emulation/wine-vanilla
+sudo emerge --ask dev-vcs/git app-emulation/winetricks app-arch/zstd sys-devel/crossdev
+sudo crossdev --target x86_64-w64-mingw32 && sudo crossdev --target i686-w64-mingw32
+```
+Wine's USE flags `vulkan` and `wow64` should be on.
 
 ### Runtime dependencies only
 
@@ -100,7 +114,11 @@ sudo dnf install winetricks curl zstd vulkan-loader gnutls pulseaudio-libs alsa-
 sudo zypper install winetricks curl zstd libvulkan1 libgnutls30 libpulse0 libasound2 \
      gstreamer-plugins-base gstreamer-plugins-good gstreamer-plugins-bad \
      libfreetype6 fontconfig libunwind8 libxkbcommon0 7zip python313-Pillow
-# Arch: see INSTALL-ARCH.md, section 1.2
+# Arch
+sudo pacman -S --needed desktop-file-utils fontconfig freetype2 gettext glib2 libpcap \
+     libunwind libx11 libxcursor libxext libxkbcommon libxi libxrandr wayland \
+     vulkan-icd-loader gnutls alsa-lib libpulse gst-plugins-base-libs winetricks curl zstd \
+     gst-plugins-good gst-plugins-bad gst-libav p7zip python-pillow
 ```
 
 These lines are checked automatically in clean containers (`tests/distro/check.sh`), see

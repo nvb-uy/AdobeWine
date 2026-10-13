@@ -12,7 +12,7 @@ First steps for any problem:
 
 | Symptom | What to do |
 |---|---|
-| `no AdobeWine runtime` | Install the `adobewine-bin`/`adobewine` package, or run `scripts/build-wine.sh` |
+| `no AdobeWine runtime` | Run the installer again, or `scripts/build-wine.sh` |
 | The Creative Cloud installer stays on "Loading..." | `adobewine setup` installs wine-gecko; run it again and check its output |
 | The sign-in window is blank or white | Close it, `adobewine fix-signin`, then `adobewine cc` |
 | The small Creative Cloud web installer (about 3 MB) shows only a white window | Fixed for build 2.14.0.82 (found by NickPittas, [#2](../../../issues/2)): patches 0055-0057 (AdobeWine 0.2.0 and later). If it still stays white, use Adobe's Creative Cloud **offline installer** (search Adobe Help for "Creative Cloud offline installer") and run it with `adobewine run`. Only use installers from adobe.com |
